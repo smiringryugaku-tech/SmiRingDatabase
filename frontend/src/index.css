@@ -1,1 +1,15 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Tiptapのプレースホルダー用CSS */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #9ca3af; /* Tailwindの text-gray-400 相当の色 */
+  pointer-events: none;
+  height: 0;
+}
+/* ツールバーの見た目を整えるため、エディタ本体のフォーカス時の青い枠線を消す */
+.tiptap:focus {
+  outline: none;
+}

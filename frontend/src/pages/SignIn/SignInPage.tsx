@@ -1,31 +1,35 @@
 import React, { useState } from 'react';
+import { supabase } from '../../lib/supabase';
+import { useNavigate } from 'react-router-dom';
 
 export default function SignInPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-
-    // TODO: ここにSupabaseのログイン処理を後で追加する
-    /*
+  
     try {
-      await supabase.auth.signInWithPassword({ email, password });
-    } catch(e) { ... }
-    */
-
-    // モックアップ用のダミー待機時間
-    setTimeout(() => {
-      alert('TODO: ログイン成功！ホーム画面へ遷移');
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
+      });
+  
+      if (error) throw error;
+      
+      navigate('/home');
+    } catch (error: any) {
+      alert(`ログインエラー: ${error.message}`);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert(`${text} をコピーしました`);
   };
 
   return (
@@ -74,28 +78,28 @@ export default function SignInPage() {
               <p className="font-bold mb-1">For test use:</p>
               <div className="flex items-center justify-between mb-1">
                 <span>Email: smiring.ryugaku@gmail.com</span>
-                <button type="button" onClick={() => copyToClipboard('smiring.ryugaku@gmail.com')} className="text-violet-600 hover:text-violet-800">Copy</button>
+                <button type="button" onClick={() => copyToClipboard('smiring.ryugaku@gmail.com')} className="text-violet-600 cursor-pointer hover:underline">Copy</button>
               </div>
               <div className="flex items-center justify-between">
                 <span>Password: SmiRingTech</span>
-                <button type="button" onClick={() => copyToClipboard('SmiRingTech')} className="text-violet-600 hover:text-violet-800">Copy</button>
+                <button type="button" onClick={() => copyToClipboard('SmiRingTech')} className="text-violet-600 cursor-pointer hover:underline">Copy</button>
               </div>
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full mt-6 bg-violet-600 text-white py-3 rounded-md font-bold hover:bg-violet-700 transition disabled:opacity-50"
+              className="w-full mt-6 bg-violet-600 text-white py-3 rounded-md font-bold cursor-pointer hover:bg-violet-700 transition disabled:opacity-50"
             >
               {isLoading ? 'Loading...' : 'Login'}
             </button>
           </form>
 
           <div className="flex justify-between mt-6 text-sm">
-            <button onClick={() => alert('TODO: Forgot Password画面へ遷移')} className="text-violet-600 hover:underline">
+            <button onClick={() => navigate('/forgot-password')} className="text-violet-600 cursor-pointer hover:underline">
               Forgot Password?
             </button>
-            <button onClick={() => alert('TODO: Sign Up画面へ遷移')} className="text-violet-600 hover:underline">
+            <button onClick={() => navigate('/sign-up')} className="text-violet-600 cursor-pointer hover:underline">
               Create Account
             </button>
           </div>

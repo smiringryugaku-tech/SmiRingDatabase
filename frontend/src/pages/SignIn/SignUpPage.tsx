@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { supabase } from '../../lib/supabase';
+import { useNavigate } from 'react-router-dom';
 
 export default function SignUpPage() {
   const [username, setUsername] = useState('');
@@ -7,16 +9,49 @@ export default function SignUpPage() {
   const [signupCode, setSignupCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  const navigate = useNavigate();
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-
-    // TODO: SupabaseのRPC（サインアップコード確認）とアカウント作成処理
-    
-    setTimeout(() => {
-      alert(`TODO: サインアップコード [${signupCode}] を確認後、登録完了！`);
+  
+    try {
+      // 1. まずはRPCでコードが正しいか確認 (門番)
+      const { data: isValidCode, error: rpcError } = await supabase.rpc('check_signup_code', {
+        code_to_check: signupCode.trim(),
+      });
+  
+      if (rpcError) throw rpcError;
+  
+      if (!isValidCode) {
+        alert('サインアップコードが正しくありません。');
+        setIsLoading(false);
+        return;
+      }
+  
+      // 2. コードが正しければサインアップ実行
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password: password,
+        options: {
+          data: {
+            display_name: username.trim(),
+            signup_code: signupCode.trim(),
+          },
+        },
+      });
+  
+      if (signUpError) throw signUpError;
+  
+      if (data.session === null) {
+        alert('確認メールを送信しました！メールを確認してください。');
+        navigate('/sign-in');
+      }
+    } catch (error: any) {
+      alert(`エラー: ${error.message}`);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -63,7 +98,7 @@ export default function SignUpPage() {
 
           <div className="flex justify-center mt-6 text-sm">
             <span className="text-gray-600 mr-2">Already have an account?</span>
-            <button onClick={() => alert('TODO: Sign In画面へ戻る')} className="text-violet-600 font-bold hover:underline">
+            <button onClick={() => navigate('/sign-in')} className="text-violet-600 font-bold hover:underline">
               Sign In
             </button>
           </div>

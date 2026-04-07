@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +45,7 @@ export default function ForgotPasswordPage() {
           </form>
 
           <div className="text-center mt-6">
-             <button onClick={() => alert('TODO: Sign In画面へ戻る')} className="text-sm text-violet-600 hover:underline">
+             <button onClick={() => navigate('/sign-in')} className="text-sm text-violet-600 hover:underline">
               Back to Sign In
             </button>
           </div>

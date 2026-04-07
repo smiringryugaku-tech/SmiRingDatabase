@@ -1,9 +1,10 @@
 import React from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
 
 export default function HomePage() {
+  const navigate = useNavigate();
   return (
-    // Flutter: Scafford + Container + Row (h-100, w-100)
-    <div className="flex h-screen w-screen overflow-hidden bg-white text-gray-900">
+    <div className="flex h-full w-full overflow-hidden bg-white text-gray-900">
       
       {/* --- 左側：メインコンテンツ (Flutter: Expanded(flex: 3)) --- */}
       <div className="flex-[3] p-8 md:p-10 overflow-y-auto">
@@ -14,16 +15,18 @@ export default function HomePage() {
             src="/assets/images/smiring_logo_side_by_side.png" 
             alt="SmiRing Logo" 
             className="max-w-[600px] w-full object-contain"
-            // TODO: 実際の画像が用意できるまでは、altテキストが表示されます
           />
         </div>
+
+        <HomeSearchBar />
+        <HomeQuickActionButtons />
 
         {/* Profiles セクション (Flutter: HorizontalContentList) */}
         <HorizontalSection 
           title="Profiles" 
           imageAsset="/assets/images/profile_photo_empty.png"
           itemTitlePrefix="Name"
-          onClickMore={() => alert('TODO: ルーティング (AppRoutes.members) へ遷移')}
+          onClickMore={() => navigate('/members')}
         />
 
         {/* Photo Gallery セクション (Flutter: HorizontalContentList) */}
@@ -31,7 +34,7 @@ export default function HomePage() {
           title="Photo Gallery" 
           imageAsset="/assets/images/photo_empty.png"
           itemTitlePrefix="Photo"
-          onClickMore={() => alert('TODO: Photo Gallery のもっと見るへ遷移')}
+          onClickMore={() => navigate('/gallery')}
         />
       </div>
 
@@ -46,6 +49,77 @@ export default function HomePage() {
 // ==========================================
 // サブコンポーネント群
 // ==========================================
+
+function HomeSearchBar() {
+  return (
+    <div className="w-full max-w-2xl mx-auto mb-6 relative">
+      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+        {/* 虫眼鏡アイコン */}
+        <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+      </div>
+      <input 
+        type="text" 
+        className="w-full pl-11 pr-4 py-3 rounded-full border border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none shadow-sm transition-all text-sm" 
+        placeholder="Search members, photos, forms..." 
+      />
+    </div>
+  );
+}
+
+// --- 3つのクイックアクションボタン ---
+function HomeQuickActionButtons() {
+  const navigate = useNavigate();
+
+  return (
+    <div className="flex justify-center gap-4 mb-12 flex-wrap">
+      {/* メンバーボタン */}
+      <QuickActionButton 
+        label="Members" 
+        onClick={() => navigate('/members')}
+        icon={
+          <svg className="w-5 h-5 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
+        }
+      />
+      {/* ギャラリーボタン */}
+      <QuickActionButton 
+        label="Gallery" 
+        onClick={() => navigate('/gallery')}
+        icon={
+          <svg className="w-5 h-5 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h14a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        }
+      />
+      {/* フォーム作成ボタン */}
+      <QuickActionButton 
+        label="Create Form" 
+        onClick={() => navigate('/form-editor')} 
+        icon={
+          <svg className="w-5 h-5 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        }
+      />
+    </div>
+  );
+}
+
+// --- クイックアクションボタンの共通デザイン ---
+function QuickActionButton({ label, icon, onClick }: { label: string, icon: React.ReactNode, onClick: () => void }) {
+  return (
+    <button 
+      onClick={onClick}
+      className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:bg-violet-50 hover:border-violet-200 transition-all text-gray-700 font-bold"
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
 
 // --- 横スクロールセクション ---
 function HorizontalSection({ title, imageAsset, itemTitlePrefix, onClickMore }: any) {
@@ -133,6 +207,7 @@ function RightPanel() {
 function UserProfileCard() {
   // TODO: 後でSupabase (Riverpodの profileProvider 相当) からデータを取得する
   // 今はハードコードされたダミーデータ
+  const navigate = useNavigate();
   const profileData = {
     name: 'Shogo',
     country: 'United Kingdom',
@@ -144,7 +219,7 @@ function UserProfileCard() {
   return (
     <div 
       className="bg-white rounded-xl p-4 flex items-center shadow-sm border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors duration-200 mb-6" 
-      onClick={() => alert('TODO: ルーティング (AppRoutes.profile) へ遷移')}
+      onClick={() => navigate('/profile')}
     >
       <img src={profileData.avatarUrl} alt="Profile" className="w-20 h-20 rounded-xl object-cover bg-gray-200 mr-4 flex-shrink-0" />
       <div className="flex-1 overflow-hidden">

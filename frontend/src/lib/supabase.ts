@@ -1,8 +1,10 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js';
 
-// ※本来は .env ファイルに環境変数を書きますが、まずは動かすために直接URLとキーを入れます
-// ご自身のSupabaseプロジェクトのURLとanon keyに書き換えてください
-const supabaseUrl = 'https://YOUR_SUPABASE_URL.supabase.co'
-const supabaseKey = 'YOUR_SUPABASE_ANON_KEY'
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseKey)
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Supabaseの環境変数が設定されていません。.envファイルを確認してください。');
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
