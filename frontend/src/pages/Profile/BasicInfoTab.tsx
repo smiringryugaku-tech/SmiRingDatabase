@@ -1,5 +1,9 @@
 import React from 'react';
 
+type Props = {
+  initialData: any;
+};
+
 // --- プロフィール行の共通コンポーネント (Flutterの ProfileInfoRow 相当) ---
 type ProfileInfoRowProps = {
   title: string;
@@ -29,18 +33,9 @@ function ProfileInfoRow({ title, value, onEdit, children }: ProfileInfoRowProps)
 }
 
 // --- メイン画面 ---
-export default function BasicInfoPage() {
-  // TODO: 後で Supabase から取得するダミーデータ
-  const data: Record<string, string> = {
-    name_english: 'Shogo Toiyama',
-    name_kanji: '問山 翔悟',
-    birthday: '2004-08',
-    hometown: 'Japan',
-    study_abroad_country: 'United Kingdom',
-    current_school: 'Lancaster University',
-    majors: 'Computer Science',
-    smiring_department: 'Tech Lead',
-  };
+export default function BasicInfoPage({ initialData }: Props) {
+  // 🌟 親から受け取ったデータを使用（なければ空オブジェクト）
+  const data = initialData || {};
 
   const handleEdit = (key: string, title: string) => {
     alert(`TODO: "${title}" の編集モーダルを開き、Supabaseの ${key} を更新する`);

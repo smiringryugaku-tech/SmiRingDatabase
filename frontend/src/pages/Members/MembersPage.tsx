@@ -1,17 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export default function MembersPage() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [members, setMembers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // 12人分のダミーデータを作成 (Flutterの itemCount: 12 相当)
-  const dummyMembers = Array.from({ length: 12 }).map((_, index) => ({
-    id: index,
-    name: `Taro SmiRing ${index}`,
-    country: 'America',
-    university: 'SmiRing University',
-    major: 'Computer Science',
-    avatarUrl: '/assets/images/profile_photo_empty.png',
-  }));
+  useEffect(() => {
+    const fetchMembers = async () => {
+      try {
+        const response = await fetch('http://localhost:3000/api/basic_profile_info');
+        const data = await response.json();
+        setMembers(data);
+      } catch (error) {
+        console.error('メンバー取得エラー:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchMembers();
+  }, []);
+
+  const filteredMembers = members.filter(member => {
+    const searchTarget = `${member.name_english || ''} ${member.name_kanji || ''}`.toLowerCase();
+    return searchTarget.includes(searchQuery.toLowerCase());
+  });
 
   return (
     // 全体の背景を少しグレーにしてカードを目立たせる (Colors.grey[50] 相当)
@@ -49,7 +62,7 @@ export default function MembersPage() {
         カードの最小幅を約340pxとし、画面幅が許す限り列を増やす（maxCrossAxisExtent相当）
       */}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-8 pb-12">
-        {dummyMembers.map((member) => (
+        {filteredMembers.map((member) => (
           <MemberCard key={member.id} member={member} />
         ))}
       </div>
@@ -59,31 +72,33 @@ export default function MembersPage() {
 
 // --- 個別のプロフィールカードコンポーネント ---
 function MemberCard({ member }: { member: any }) {
+  const displayName = member.name_english || 'No Name';
+  const avatarUrl = member.avatar_link || '/assets/images/profile_photo_empty.png';
+
   return (
     <div 
       className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-200 cursor-pointer overflow-hidden border border-gray-100 p-4"
-      onClick={() => alert(`TODO: ${member.name} さんの詳細プロフィール画面へ遷移`)}
+      onClick={() => alert(`TODO: ${displayName} さんの詳細プロフィール画面へ遷移`)}
     >
       <div className="flex h-full items-center">
-        {/* --- 左側: 丸いプロフィール画像 --- */}
         <div className="w-24 h-24 flex-shrink-0">
           <img 
-            src={member.avatarUrl} 
-            alt={member.name} 
+            src={avatarUrl} 
+            alt={displayName} 
             className="w-full h-full object-cover rounded-full border-2 border-gray-200"
           />
         </div>
 
-        {/* --- 右側: テキスト情報 --- */}
         <div className="ml-4 flex-1 min-w-0 flex flex-col justify-center">
           <h3 className="text-lg font-bold text-gray-900 truncate mb-2">
-            {member.name}
+            {displayName}
           </h3>
           
           <div className="space-y-1">
-            <IconText icon={<LocationIcon />} text={member.country} />
-            <IconText icon={<SchoolIcon />} text={member.university} />
-            <IconText icon={<WorkIcon />} text={member.major} />
+            {/* DBのカラム名に合わせてプロパティを変更 */}
+            <IconText icon={<LocationIcon />} text={member.study_abroad_country || '未設定'} />
+            <IconText icon={<SchoolIcon />} text={member.current_school || '未設定'} />
+            <IconText icon={<WorkIcon />} text={member.majors || '未設定'} />
           </div>
         </div>
       </div>

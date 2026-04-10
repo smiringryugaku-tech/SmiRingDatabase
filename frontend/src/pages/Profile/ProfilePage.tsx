@@ -1,13 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
 import BasicInfoPage from './BasicInfoTab';
 
 export default function ProfilePage() {
-  // タブの切り替え状態を管理 (basic または detail)
   const [activeTab, setActiveTab] = useState<'basic' | 'detail'>('basic');
+  const [profileData, setProfileData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // ダミーデータ (ギャラリー画像)
+  // 🌟 コンポーネント起動時に自分のデータを取得
+  useEffect(() => {
+    const fetchMyProfile = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+
+        if (!token) return;
+
+        // 前回作成したバックエンドの /api/profile/me を叩く
+        const response = await fetch('http://localhost:3000/api/basic_profile_info/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        const data = await response.json();
+        setProfileData(data);
+      } catch (error) {
+        console.error('プロフィール取得エラー:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchMyProfile();
+  }, []);
+
+  // 🌟 画像URLの判定ロジック
+  const avatarUrl = profileData?.avatar_link 
+    ? profileData.avatar_link 
+    : '/assets/images/profile_photo_empty.png';
+
+  // ダミーのギャラリーデータ（これも後でAPI化できます）
   const dummyGallery = Array.from({ length: 9 }).map((_, i) => `/assets/images/photo_empty.png`);
 
+  if (isLoading) {
+    return <div className="flex h-full items-center justify-center">Loading...</div>;
+  }
+  
   return (
     <div className="flex h-full w-full bg-white overflow-hidden text-gray-900">
       
@@ -19,20 +56,21 @@ export default function ProfilePage() {
           className="w-full max-w-[240px] aspect-square rounded-full border-4 border-gray-300 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity relative group"
           onClick={() => alert('TODO: 写真変更モーダルを開く')}
         >
+          {/* 🌟 取得した avatarUrl を反映 */}
           <img 
-            src="/assets/images/profile_photo_empty.png" 
+            src={avatarUrl} 
             alt="Avatar" 
             className="w-full h-full object-cover"
           />
-          {/* ホバー時に写真変更アイコンをうっすら出すオシャレ演出 */}
           <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <span className="text-white font-bold">写真を変更</span>
+            <span className="text-white font-bold text-sm">写真を変更</span>
           </div>
         </div>
 
-        <h3 className="mt-8 font-bold text-lg mb-4">My Photos</h3>
+        {/* ユーザー名などの簡易表示を追加するとさらに良いです */}
+        <h2 className="mt-6 text-xl font-bold">{profileData?.name_english || 'No Name'}</h2>
 
-        {/* 2. ギャラリー画像一覧 */}
+        <h3 className="mt-8 font-bold text-lg mb-4">My Photos</h3>
         <div className="w-full grid grid-cols-3 gap-2">
           {dummyGallery.map((img, index) => (
             <div key={index} className="aspect-square rounded-lg overflow-hidden bg-gray-200 cursor-pointer hover:opacity-80">
@@ -70,11 +108,10 @@ export default function ProfilePage() {
         {/* タブの中身 (スクロール可能エリア) */}
         <div className="flex-1 overflow-y-auto">
           {activeTab === 'basic' ? (
-            <BasicInfoPage />
+            // 🌟 子コンポーネントに取得したデータを Props で渡す
+            <BasicInfoPage initialData={profileData} />
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-500 text-xl">
-              Detail Information Content (Coming Soon)
-            </div>
+            <div className="flex items-center justify-center h-full text-gray-500">Coming Soon</div>
           )}
         </div>
       </div>

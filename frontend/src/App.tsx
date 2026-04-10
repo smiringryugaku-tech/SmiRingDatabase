@@ -14,7 +14,7 @@ import WelcomePage from './pages/Welcome/WelcomePage';
 import ProfilePage from './pages/Profile/ProfilePage';
 import MembersPage from './pages/Members/MembersPage';
 import GalleryPage from './pages/Gallery/GalleryPage';
-import FormEditorPage from './pages/FormEditor/FormEditorPage';
+import FormEditorPage from './pages/Form/FormEditor/FormEditorPage';
 
 // ==========================================
 // ログイン判定ガード (Flutterの redirect 処理に相当)

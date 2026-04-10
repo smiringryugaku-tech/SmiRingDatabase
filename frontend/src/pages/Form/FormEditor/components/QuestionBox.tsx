@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import QuestionMenu from './QuestionMenu';
 import { CircleDot, CheckSquare, SquareChevronDown, LineDotRightHorizontal, LayoutGrid, PenLine, NotebookPen } from 'lucide-react';
-import RichTextEditor from '../../../components/ui/RichTextEditor';
+import RichTextEditor from '../../../../components/ui/RichTextEditor';
 
 type QuestionBoxProps = {
   onDelete: () => void;

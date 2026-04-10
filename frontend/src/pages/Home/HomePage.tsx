@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -189,6 +190,8 @@ function RightPanel() {
         </div>
       </div>
 
+      <div>作り中のフォーム</div>
+
       {/* 3. Timeline Section (Flutter: TimelineWidget + SizedBox(height: 16)) */}
       <h3 className="text-xl font-bold m-0 mb-2 mt-6">Timeline</h3>
       <div className="flex-1 bg-white rounded-xl border border-gray-200 overflow-y-auto">
@@ -205,28 +208,66 @@ function RightPanel() {
 
 // --- ユーザープロフィールカード ---
 function UserProfileCard() {
-  // TODO: 後でSupabase (Riverpodの profileProvider 相当) からデータを取得する
-  // 今はハードコードされたダミーデータ
   const navigate = useNavigate();
-  const profileData = {
-    name: 'Shogo',
-    country: 'United Kingdom',
-    school: 'Lancaster University',
-    major: 'Computer Science',
-    avatarUrl: '/assets/images/profile_photo_empty.png'
-  };
+  const [profileData, setProfileData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMyProfile = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) return;
+
+        const response = await fetch('http://localhost:3000/api/basic_profile_info/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setProfileData(data);
+        }
+      } catch (error) {
+        console.error('プロフィールの取得に失敗しました:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchMyProfile();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="bg-white rounded-xl p-4 flex items-center shadow-sm border border-gray-100 mb-6 h-28 animate-pulse">
+        <div className="w-20 h-20 rounded-xl bg-gray-200 mr-4 flex-shrink-0"></div>
+        <div className="flex-1 space-y-2">
+          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+          <div className="h-3 bg-gray-200 rounded w-1/3"></div>
+          <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+        </div>
+      </div>
+    );
+  }
+  const displayName = profileData?.name_english || 'No Name';
+  const country = profileData?.study_abroad_country || '未設定';
+  const school = profileData?.current_school || '未設定';
+  const major = profileData?.majors || '未設定';
+  const avatarUrl = profileData?.avatar_link && profileData.avatar_link !== '' 
+    ? profileData.avatar_link 
+    : '/assets/images/profile_photo_empty.png';
 
   return (
     <div 
       className="bg-white rounded-xl p-4 flex items-center shadow-sm border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors duration-200 mb-6" 
       onClick={() => navigate('/profile')}
     >
-      <img src={profileData.avatarUrl} alt="Profile" className="w-20 h-20 rounded-xl object-cover bg-gray-200 mr-4 flex-shrink-0" />
+      <img src={avatarUrl} alt="Profile" className="w-20 h-20 rounded-xl object-cover bg-gray-100 mr-4 flex-shrink-0 border border-gray-200" />
       <div className="flex-1 overflow-hidden">
-        <h4 className="text-lg font-bold m-0 mb-2 truncate">{profileData.name}</h4>
-        <p className="text-xs text-gray-600 m-0 mb-0.5 truncate">📍 {profileData.country}</p>
-        <p className="text-xs text-gray-600 m-0 mb-0.5 truncate">🏫 {profileData.school}</p>
-        <p className="text-xs text-gray-600 m-0 truncate">💼 {profileData.major}</p>
+        <h4 className="text-lg font-bold text-gray-900 m-0 mb-2 truncate">{displayName}</h4>
+        <p className="text-xs text-gray-600 m-0 mb-0.5 truncate">📍 {country}</p>
+        <p className="text-xs text-gray-600 m-0 mb-0.5 truncate">🏫 {school}</p>
+        <p className="text-xs text-gray-600 m-0 truncate">💼 {major}</p>
       </div>
     </div>
   );
