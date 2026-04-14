@@ -32,16 +32,16 @@ export default function ResetPasswordPage() {
         <form onSubmit={handleUpdate} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-violet-500" />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" />
             <p className="text-xs text-gray-500 mt-1">6文字以上で入力してください</p>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
-            <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={6} required className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-violet-500" />
+            <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={6} required className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" />
           </div>
 
-          <button type="submit" disabled={isLoading} className="w-full bg-violet-600 text-white py-3 rounded-md font-bold hover:bg-violet-700 transition disabled:opacity-50">
+          <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white py-3 rounded-md font-bold hover:bg-blue-700 transition disabled:opacity-50">
             {isLoading ? 'Updating...' : 'Update Password'}
           </button>
         </form>

@@ -35,9 +35,9 @@ export default function SignInPage() {
   return (
     <div className="flex min-h-screen bg-white">
       {/* 左側：ロゴエリア（md:flex で画面幅768px以上のみ表示） */}
-      <div className="hidden md:flex flex-1 bg-violet-100 flex-col items-center justify-center p-8">
+      <div className="hidden md:flex flex-1 bg-blue-100 flex-col items-center justify-center p-8">
         <img src="/assets/images/SmiRing_logo_temp.png" alt="Logo" className="w-48 h-48 object-contain" />
-        <h1 className="mt-6 text-3xl font-bold text-violet-900">SmiRing Database</h1>
+        <h1 className="mt-6 text-3xl font-bold text-blue-900">SmiRing Database</h1>
       </div>
 
       {/* 右側：フォームエリア */}
@@ -45,7 +45,7 @@ export default function SignInPage() {
         <div className="w-full max-w-md">
           {/* スマホ用ロゴ（md:hidden で画面幅768px未満のみ表示） */}
           <div className="md:hidden text-center mb-8">
-            <h1 className="text-2xl font-bold text-violet-900">SmiRing DB</h1>
+            <h1 className="text-2xl font-bold text-blue-900">SmiRing DB</h1>
           </div>
 
           <h2 className="text-3xl font-bold text-center mb-8">Sign In</h2>
@@ -58,7 +58,7 @@ export default function SignInPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -69,7 +69,7 @@ export default function SignInPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -78,28 +78,28 @@ export default function SignInPage() {
               <p className="font-bold mb-1">For test use:</p>
               <div className="flex items-center justify-between mb-1">
                 <span>Email: smiring.ryugaku@gmail.com</span>
-                <button type="button" onClick={() => copyToClipboard('smiring.ryugaku@gmail.com')} className="text-violet-600 cursor-pointer hover:underline">Copy</button>
+                <button type="button" onClick={() => copyToClipboard('smiring.ryugaku@gmail.com')} className="text-blue-600 cursor-pointer hover:underline">Copy</button>
               </div>
               <div className="flex items-center justify-between">
                 <span>Password: SmiRingTech</span>
-                <button type="button" onClick={() => copyToClipboard('SmiRingTech')} className="text-violet-600 cursor-pointer hover:underline">Copy</button>
+                <button type="button" onClick={() => copyToClipboard('SmiRingTech')} className="text-blue-600 cursor-pointer hover:underline">Copy</button>
               </div>
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full mt-6 bg-violet-600 text-white py-3 rounded-md font-bold cursor-pointer hover:bg-violet-700 transition disabled:opacity-50"
+              className="w-full mt-6 bg-blue-600 text-white py-3 rounded-md font-bold cursor-pointer hover:bg-blue-700 transition disabled:opacity-50"
             >
               {isLoading ? 'Loading...' : 'Login'}
             </button>
           </form>
 
           <div className="flex justify-between mt-6 text-sm">
-            <button onClick={() => navigate('/forgot-password')} className="text-violet-600 cursor-pointer hover:underline">
+            <button onClick={() => navigate('/forgot-password')} className="text-blue-600 cursor-pointer hover:underline">
               Forgot Password?
             </button>
-            <button onClick={() => navigate('/sign-up')} className="text-violet-600 cursor-pointer hover:underline">
+            <button onClick={() => navigate('/sign-up')} className="text-blue-600 cursor-pointer hover:underline">
               Create Account
             </button>
           </div>

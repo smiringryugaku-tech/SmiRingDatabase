@@ -46,7 +46,7 @@ export default function MembersPage() {
           </div>
           <input
             type="text"
-            className="w-full pl-10 pr-4 py-3 border-none rounded-full bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
+            className="w-full pl-10 pr-4 py-3 border-none rounded-full bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             placeholder="Search members by name, university, major..."
             value={searchQuery}
             onChange={(e) => {

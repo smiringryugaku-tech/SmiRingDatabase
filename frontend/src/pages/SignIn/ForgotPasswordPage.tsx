@@ -20,9 +20,9 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="flex min-h-screen bg-white">
-      <div className="hidden md:flex flex-1 bg-violet-100 flex-col items-center justify-center p-8">
+      <div className="hidden md:flex flex-1 bg-blue-100 flex-col items-center justify-center p-8">
         <img src="/assets/images/SmiRing_logo_temp.png" alt="Logo" className="w-48 h-48 object-contain" />
-        <h1 className="mt-6 text-3xl font-bold text-violet-900">SmiRing Database</h1>
+        <h1 className="mt-6 text-3xl font-bold text-blue-900">SmiRing Database</h1>
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto">
@@ -36,16 +36,16 @@ export default function ForgotPasswordPage() {
           <form onSubmit={handleReset} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-violet-500" />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" />
             </div>
 
-            <button type="submit" disabled={isLoading} className="w-full bg-violet-600 text-white py-3 rounded-md font-bold hover:bg-violet-700 transition disabled:opacity-50">
+            <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white py-3 rounded-md font-bold hover:bg-blue-700 transition disabled:opacity-50">
               {isLoading ? 'Sending...' : 'Send Reset Email'}
             </button>
           </form>
 
           <div className="text-center mt-6">
-             <button onClick={() => navigate('/sign-in')} className="text-sm text-violet-600 hover:underline">
+             <button onClick={() => navigate('/sign-in')} className="text-sm text-blue-600 hover:underline">
               Back to Sign In
             </button>
           </div>

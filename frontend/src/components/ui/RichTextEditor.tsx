@@ -5,6 +5,7 @@ import { Bold, Italic, List, ListOrdered, Code, ChevronDown } from 'lucide-react
 import { useState } from 'react';
 
 type Props = {
+  value?: string;
   onChange?: (html: string) => void;
   placeholder?: string;
   readOnly?: boolean; 
@@ -17,7 +18,7 @@ const headingOptions = [
   { label: 'Heading 3', value: 'h3' },
 ];
 
-export default function RichTextEditor({ onChange, placeholder = '文章を入力。', readOnly = false}: Props) {
+export default function RichTextEditor({ value = '', onChange, placeholder = '文章を入力。', readOnly = false}: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [, setForceUpdate] = useState(0);
@@ -27,15 +28,15 @@ export default function RichTextEditor({ onChange, placeholder = '文章を入�
       StarterKit,
       Placeholder.configure({ placeholder: placeholder }),
     ],
+    content: value,
     editable: !readOnly,
     editorProps: {
       attributes: {
-        // 🌟 修正：最後に「prose-code:〜」を大量に追加して、ハイライト風のスタイルを適用！
         class: 
           'outline-none text-sm text-gray-600 min-h-[28px] prose prose-sm max-w-none ' + 
           'prose-p:my-1 prose-p:leading-normal prose-headings:my-2 ' + 
           'prose-h1:text-lg prose-h1:font-bold prose-h2:text-base prose-h2:font-bold prose-h3:text-sm prose-h3:font-bold ' +
-          'prose-code:before:content-none prose-code:after:content-none prose-code:bg-violet-100 prose-code:text-violet-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:font-mono prose-code:font-bold',
+          'prose-code:before:content-none prose-code:after:content-none prose-code:bg-blue-100 prose-code:text-blue-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:font-mono prose-code:font-bold',
       },
     },
     onUpdate: ({ editor }) => onChange?.(editor.getHTML()),
@@ -81,7 +82,7 @@ export default function RichTextEditor({ onChange, placeholder = '文章を入�
                   <button
                     key={opt.value}
                     onMouseDown={e => { e.preventDefault(); applyBlock(opt.value); }}
-                    className={`block w-full text-left px-4 py-1.5 text-xs hover:bg-violet-50 hover:text-violet-700 transition-colors ${getCurrentBlockLabel() === opt.label ? 'text-violet-600 font-bold' : 'text-gray-700'}`}
+                    className={`block w-full text-left px-4 py-1.5 text-xs hover:bg-blue-50 hover:text-blue-700 transition-colors ${getCurrentBlockLabel() === opt.label ? 'text-blue-600 font-bold' : 'text-gray-700'}`}
                   >
                     {opt.label}
                   </button>
@@ -95,7 +96,7 @@ export default function RichTextEditor({ onChange, placeholder = '文章を入�
           {/* Bold */}
           <button
             onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }}
-            className={`p-1.5 rounded transition-colors ${editor.isActive('bold') ? 'bg-violet-100 text-violet-700' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`p-1.5 rounded transition-colors ${editor.isActive('bold') ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Bold className="w-3.5 h-3.5" strokeWidth={2.5} />
           </button>
@@ -103,7 +104,7 @@ export default function RichTextEditor({ onChange, placeholder = '文章を入�
           {/* Italic */}
           <button
             onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }}
-            className={`p-1.5 rounded transition-colors ${editor.isActive('italic') ? 'bg-violet-100 text-violet-700' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`p-1.5 rounded transition-colors ${editor.isActive('italic') ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Italic className="w-3.5 h-3.5" strokeWidth={2.5} />
           </button>
@@ -113,7 +114,7 @@ export default function RichTextEditor({ onChange, placeholder = '文章を入�
           {/* Bullet List */}
           <button
             onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }}
-            className={`p-1.5 rounded transition-colors ${editor.isActive('bulletList') ? 'bg-violet-100 text-violet-700' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`p-1.5 rounded transition-colors ${editor.isActive('bulletList') ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <List className="w-3.5 h-3.5" strokeWidth={2} />
           </button>
@@ -121,7 +122,7 @@ export default function RichTextEditor({ onChange, placeholder = '文章を入�
           {/* Ordered List */}
           <button
             onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }}
-            className={`p-1.5 rounded transition-colors ${editor.isActive('orderedList') ? 'bg-violet-100 text-violet-700' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`p-1.5 rounded transition-colors ${editor.isActive('orderedList') ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <ListOrdered className="w-3.5 h-3.5" strokeWidth={2} />
           </button>
@@ -129,7 +130,7 @@ export default function RichTextEditor({ onChange, placeholder = '文章を入�
           {/* Inline Code */}
           <button
             onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleCode().run(); }}
-            className={`p-1.5 rounded transition-colors ${editor.isActive('code') ? 'bg-violet-100 text-violet-700' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`p-1.5 rounded transition-colors ${editor.isActive('code') ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Code className="w-3.5 h-3.5" strokeWidth={2} />
           </button>

@@ -79,6 +79,224 @@ app.get('/api/basic_profile_info/me', async (req: Request, res: Response) => {
 });
 
 // ==========================================
+// 📝 フォーム＆質問の一括保存 API (Step 1追加)
+// ==========================================
+app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
+  const { id: formId } = req.params;
+  const { title, description, questions, created_by } = req.body;
+
+  try {
+    // 1. フォーム本体をUpsert
+    const { error: formError } = await supabase
+      .from('forms')
+      .upsert({
+        id: formId,
+        title,
+        description,
+        status: 'draft',
+        created_by,
+        updated_at: new Date().toISOString(),
+      });
+    if (formError) throw formError;
+
+    // 2. 質問本体をUpsert
+    for (const q of questions) {
+      const { error: qError } = await supabase
+        .from('questions')
+        .upsert({
+          id: q.id,
+          title: q.title,
+          question_type: q.type,
+          // UIの細かい設定はすべてoptionsにJSONBとしてまとめる！
+          options: {
+            choices: q.options,
+            scale: q.scale,
+            gridRows: q.gridRows,
+            gridCols: q.gridCols,
+            gridInputType: q.gridInputType,
+            validation: q.shortTextValidation
+          }
+        });
+      if (qError) throw qError;
+    }
+
+    // 3. 紐付け (form_questions) を更新
+    // ※安全のため、一旦このフォームの紐付けを全削除してから現在の順番で入れ直します
+    await supabase.from('form_questions').delete().eq('form_id', formId);
+
+    const formQuestionsData = questions.map((q: any, index: number) => ({
+      form_id: formId,
+      question_id: q.id,
+      order_index: index,
+      is_required: false
+    }));
+
+    if (formQuestionsData.length > 0) {
+      const { error: linkError } = await supabase.from('form_questions').insert(formQuestionsData);
+      if (linkError) throw linkError;
+    }
+
+    res.json({ message: "保存成功" });
+  } catch (error: any) {
+    console.error("Save Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// 🚀 フォーム公開（送信完了） API
+// ==========================================
+app.post('/api/forms/:id/publish', async (req: Request, res: Response) => {
+  const { id: formId } = req.params;
+  const { assigned_user_ids, due_date, allow_anonymous, timezone, status } = req.body;
+
+  try {
+    // publish_settings JSONB の構造を作成
+    const publish_settings = {
+      visibility: "restricted",   // 今回はメンバー指定なので restricted
+      assigned_user_ids: assigned_user_ids,
+      external_emails: [],        // 将来用プレースホルダー
+      share_url: `/form-answer/${formId}`, // 共有用URLのプレースホルダー
+      timezone: timezone
+    };
+
+    const { error } = await supabase
+      .from('forms')
+      .update({
+        status: status,
+        due_date: due_date || null,
+        allow_anonymous: allow_anonymous,
+        publish_settings: publish_settings,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', formId);
+
+    if (error) throw error;
+
+    res.json({ message: "フォームを公開しました！", share_url: publish_settings.share_url });
+  } catch (error: any) {
+    console.error("Publish Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// 📖 フォーム＆質問の取得 API
+// ==========================================
+app.get('/api/forms/:id', async (req: Request, res: Response) => {
+  const { id: formId } = req.params;
+
+  try {
+    // 1. フォーム本体を取得
+    const { data: form, error: formError } = await supabase
+      .from('forms')
+      .select('*')
+      .eq('id', formId)
+      .single();
+
+    if (formError || !form) return res.status(404).json({ error: 'フォームが見つかりません' });
+
+    // 2. 紐付いている質問を順番通りに取得
+    const { data: qLinks, error: qError } = await supabase
+      .from('form_questions')
+      .select('*, questions(*)')
+      .eq('form_id', formId)
+      .order('order_index', { ascending: true });
+
+    if (qError) throw qError;
+
+    // 3. フロントエンドが使いやすい形に整形して返す
+    const questions = qLinks?.map(link => {
+      const q = link.questions;
+      return {
+        id: q.id,
+        title: q.title || '',
+        description: '', 
+        type: q.question_type || 'radio',
+        options: q.options?.choices || [],
+        scale: q.options?.scale || { min: 1, max: 5, minLabel: '', maxLabel: '' },
+        gridRows: q.options?.gridRows || [],
+        gridCols: q.options?.gridCols || [],
+        gridInputType: q.options?.gridInputType || 'radio',
+        shortTextValidation: q.options?.validation || { enabled: false }
+      };
+    }) || [];
+
+    res.json({ ...form, questions });
+
+  } catch (error: any) {
+    console.error("Fetch Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+// ==========================================
+// 📋 自分のフォーム一覧を取得する API
+// ==========================================
+app.get('/api/my-forms', async (req: Request, res: Response) => {
+  try {
+    // 1. フロントエンドから送られてきたトークンを取得
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: '認証トークンがありません' });
+    }
+
+    // 2. トークンからユーザーを特定する
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) throw authError;
+
+    // 3. formsテーブルから、自分が作成したフォームだけを取得する
+    // deleted_at が null のもの（削除されていないもの）だけを、更新日順で取得
+    const { data, error } = await supabase
+      .from('forms')
+      .select('id, title, status, updated_at')
+      .eq('created_by', user.id)
+      .is('deleted_at', null)
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+    res.json(data);
+
+  } catch (error: any) {
+    console.error('マイフォーム取得エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// 📩 自分にアサインされたフォームを取得する API
+// ==========================================
+app.get('/api/assigned-forms', async (req: Request, res: Response) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: '認証トークンがありません' });
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) throw authError;
+
+    // JSONBの配列内に自分のユーザーIDが含まれているもの、かつ「公開中」のものを取得
+    // Supabaseでは .contains() を使ってJSONB配列内の検索が可能です
+    const { data, error } = await supabase
+      .from('forms')
+      .select('id, title, due_date, status, publish_settings')
+      .eq('status', 'published') 
+      .is('deleted_at', null)
+      .contains('publish_settings', { assigned_user_ids: [user.id] });
+
+    if (error) throw error;
+
+    // 締め切り日（due_date）が近い順にフロントエンドで並べ替えるため、
+    // ここではそのままデータを返します（日付のソートはJS側で行うのが安全です）
+    res.json(data);
+
+  } catch (error: any) {
+    console.error('アサインフォーム取得エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
 // 🧪 AIテスト用のエンドポイント
 // ==========================================
 app.post('/api/test-ai', async (req: Request, res: Response) => {

@@ -19,16 +19,16 @@ export default function MainLayout() {
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-white text-gray-900">
+    <div className="flex flex-col h-screen w-full bg-white text-gray-900">
       
       {/* --- 1. Global Nav Bar (AppBar 相当) --- */}
       {/* Theme.of(context).colorScheme.inversePrimary っぽい色合いに */}
-      <header className="h-16 bg-violet-100 flex items-center px-4 shrink-0 shadow-sm relative z-10">
+      <header className="h-16 bg-blue-100 flex items-center px-4 shrink-0 shadow-sm relative z-10">
         
         {/* ハンバーガーメニューボタン */}
         <button
           onClick={() => setIsDrawerOpen(true)}
-          className="p-2 mr-2 text-violet-900 hover:bg-violet-200 rounded-md transition-colors"
+          className="p-2 mr-2 text-blue-900 hover:bg-blue-200 rounded-md transition-colors"
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -36,7 +36,7 @@ export default function MainLayout() {
         </button>
 
         {/* タイトル (FlutterのTextButton相当：タップでHomeへ) */}
-        <Link to="/home" className="text-xl font-bold text-violet-900 hover:opacity-80 transition-opacity">
+        <Link to="/home" className="text-xl font-bold text-blue-900 hover:opacity-80 transition-opacity">
           SmiRing Database
         </Link>
       </header>
@@ -79,13 +79,13 @@ export default function MainLayout() {
         {/* ナビゲーションリンク (Flutterのメニュー上部) */}
         {/* Linkコンポーネントを使って、画面を再読み込みせずに高速遷移します */}
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          <Link to="/home" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-violet-50 text-gray-700 font-medium">
+          <Link to="/home" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-blue-50 text-gray-700 font-medium">
             Home
           </Link>
-          <Link to="/profile" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-violet-50 text-gray-700 font-medium">
+          <Link to="/profile" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-blue-50 text-gray-700 font-medium">
             My Profile
           </Link>
-          <Link to="/members" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-violet-50 text-gray-700 font-medium">
+          <Link to="/members" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-blue-50 text-gray-700 font-medium">
             Members
           </Link>
         </nav>

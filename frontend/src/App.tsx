@@ -15,6 +15,8 @@ import ProfilePage from './pages/Profile/ProfilePage';
 import MembersPage from './pages/Members/MembersPage';
 import GalleryPage from './pages/Gallery/GalleryPage';
 import FormEditorPage from './pages/Form/FormEditor/FormEditorPage';
+import FormListPage from './pages/Form/FormList/FormListPage';
+import FormAnswerPage from './pages/Form/Answer/FormAnswerPage';
 
 // ==========================================
 // ログイン判定ガード (Flutterの redirect 処理に相当)
@@ -70,7 +72,10 @@ const router = createBrowserRouter([
       { path: '/profile', element: <ProfilePage /> },
       { path: '/members', element: <MembersPage /> },
       { path: '/gallery', element: <GalleryPage /> },
-      { path: '/form-editor', element: <FormEditorPage /> }
+      { path: '/form-list', element: <FormListPage /> },
+      { path: '/form-editor/:id', element: <FormEditorPage /> },
+      { path: '/form-preview/:id', element: <FormAnswerPage /> },
+      { path: '/form-answer/:id', element: <FormAnswerPage /> },
     ],
   },
 ]);

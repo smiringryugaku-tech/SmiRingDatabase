@@ -17,7 +17,7 @@ export default function GallerySidebar() {
           </div>
           <input
             type="text"
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             placeholder="Search photos..."
           />
         </div>
@@ -28,7 +28,7 @@ export default function GallerySidebar() {
         {/* Preset */}
         <div>
           <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Presets</h3>
-          <button className="w-full flex items-center px-4 py-3 bg-violet-100 text-violet-700 rounded-lg font-bold transition-colors hover:bg-violet-200">
+          <button className="w-full flex items-center px-4 py-3 bg-blue-100 text-blue-700 rounded-lg font-bold transition-colors hover:bg-blue-200">
             <span className="mr-2">🔥</span> Popular
           </button>
         </div>
