@@ -6,11 +6,12 @@ import type { QuestionData } from '../FormEditorPage';
 
 type QuestionBoxProps = {
   question: QuestionData;
+  isActive: boolean;
   onChange: (updates: Partial<QuestionData>) => void;
   onDelete: () => void;
 };
 
-export default function QuestionBox({ question, onChange, onDelete }: QuestionBoxProps) {
+export default function QuestionBox({ question, isActive, onChange, onDelete }: QuestionBoxProps) {
   
   const questionTypeIcons: Record<string, React.ElementType> = {
     radio: CircleDot, 
@@ -403,7 +404,7 @@ export default function QuestionBox({ question, onChange, onDelete }: QuestionBo
   };
 
   return (
-    <div className="relative w-full bg-white rounded-xl shadow-sm border border-gray-200 p-6 group focus-within:ring-2 focus-within:ring-blue-200 transition-all">
+    <div className={`relative w-full bg-white rounded-xl shadow-sm p-6 group focus-within:ring-2 focus-within:ring-blue-200 transition-all ${isActive ? 'border-3 border-blue-500' : 'border-3 border-gray-200'}`}>
       
       {(() => {
         const Icon = questionTypeIcons[question.type];
@@ -442,11 +443,30 @@ export default function QuestionBox({ question, onChange, onDelete }: QuestionBo
             <span className="font-bold">Invalid Question Type (未実装の形式です)</span>
           </div>
         )}
+
+        <div className="pt-4 mt-4 border-t border-gray-100 flex justify-end">
+          <label className="flex items-center cursor-pointer gap-2 group">
+            <span className={`text-sm font-bold transition-colors ${question.isRequired ? 'text-blue-700' : 'text-gray-500 group-hover:text-gray-700'}`}>
+              必須
+            </span>
+            <div className="relative">
+              <input 
+                type="checkbox" 
+                className="sr-only" 
+                checked={question.isRequired || false}
+                onChange={(e) => onChange({ isRequired: e.target.checked })}
+              />
+              <div className={`block w-10 h-6 rounded-full transition-colors ${question.isRequired ? 'bg-blue-600' : 'bg-gray-200'}`}></div>
+              <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${question.isRequired ? 'transform translate-x-4' : ''}`}></div>
+            </div>
+          </label>
+        </div>
       </div>
 
       <QuestionMenu 
         currentType={question.type}
         onChangeType={(newType) => onChange({ type: newType })}
+        isActive={isActive}
         onDelete={onDelete} 
       />
     </div>

@@ -66,27 +66,34 @@ export default function MainLayout() {
         }`}
       >
         {/* SafeArea 相当の余白とヘッダー */}
-        <div className="pt-safe border-b border-gray-100 flex justify-between items-center p-4">
-          <span className="text-lg font-bold text-gray-500">Menu</span>
-          {/* 閉じるボタン (Xマーク) */}
-          <button onClick={() => setIsDrawerOpen(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="relative pt-safe border-b border-gray-100 flex items-center justify-center p-2 min-h-[60px]">
+          <button 
+            onClick={() => setIsDrawerOpen(false)} 
+            className="absolute left-2 p-3 text-gray-400 hover:bg-gray-100 rounded-full transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
+          <span className="text-lg font-bold text-gray-700">Menu</span>
         </div>
 
-        {/* ナビゲーションリンク (Flutterのメニュー上部) */}
         {/* Linkコンポーネントを使って、画面を再読み込みせずに高速遷移します */}
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           <Link to="/home" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-blue-50 text-gray-700 font-medium">
-            Home
-          </Link>
-          <Link to="/profile" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-blue-50 text-gray-700 font-medium">
-            My Profile
+            🏠 Home
           </Link>
           <Link to="/members" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-blue-50 text-gray-700 font-medium">
-            Members
+            🌐 Members
+          </Link>
+          <Link to="/gallery" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-blue-50 text-gray-700 font-medium">
+            🖼️ Gallery
+          </Link>
+          <Link to="/form-list" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-blue-50 text-gray-700 font-medium">
+            📝 My Forms
+          </Link>
+          <Link to="/profile" onClick={() => setIsDrawerOpen(false)} className="block px-4 py-3 rounded-md hover:bg-blue-50 text-gray-700 font-medium">
+            👤 My Profile
           </Link>
         </nav>
 

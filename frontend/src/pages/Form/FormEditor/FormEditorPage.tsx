@@ -12,6 +12,7 @@ export type QuestionData = {
   title: string;
   description: string;
   type: string;
+  isRequired?: boolean;
   options: { id: number; text: string }[];
   scale: { min: number; max: number; minLabel: string; maxLabel: string };
   gridRows: { id: number; text: string }[];
@@ -32,6 +33,7 @@ const createDefaultQuestion = (): QuestionData => ({
   title: '',
   description: '',
   type: 'radio',
+  isRequired: false,
   options: [{ id: 1, text: '' }, { id: 2, text: '' }],
   scale: { min: 1, max: 5, minLabel: '', maxLabel: '' },
   gridRows: [{ id: 1, text: '' }],
@@ -67,12 +69,12 @@ export default function FormEditorPage() {
   const [formId] = useState(urlId || crypto.randomUUID());
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [questions, setQuestions] = useState<QuestionData[]>([createDefaultQuestion()]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const viewMode = searchParams.get('mode') || 'edit'; // URLに ?mode=〇〇 があればそれを使う。なければ 'edit'
+  const viewMode = searchParams.get('mode') || 'edit';
   const [testAnswers, setTestAnswers] = useState<Record<string, any>>({});
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
@@ -81,6 +83,35 @@ export default function FormEditorPage() {
   const [currentDueDate, setCurrentDueDate] = useState('');
   const [currentIsAnonymous, setCurrentIsAnonymous] = useState(false);
   const [currentAssignedUsers, setCurrentAssignedUsers] = useState<string[]>([]);
+  const [initialDefaultQuestion] = useState(() => createDefaultQuestion());
+  const [questions, setQuestions] = useState<QuestionData[]>([initialDefaultQuestion]);
+  const [activeQuestionId, setActiveQuestionId] = useState<string | null>(initialDefaultQuestion.id);
+
+  // 🌟 画面中央にある要素を特定するロジック（スクロール停止時に判定）
+  const handleScrollSelection = () => {
+    const container = editorScrollRef.current;
+    if (!container) return;
+    const containerCenter = container.getBoundingClientRect().top + container.clientHeight / 2;
+    
+    // 全ての質問Boxの中から、一番中央に近いものを探す
+    let closestId = null;
+    let minDistance = Infinity;
+
+    questions.forEach((q) => {
+      const el = document.getElementById(`box-${q.id}`);
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const elementCenter = rect.top + rect.height / 2;
+        const distance = Math.abs(containerCenter - elementCenter);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestId = q.id;
+        }
+      }
+    });
+
+    if (closestId) setActiveQuestionId(closestId);
+  };
 
   const clearAnswers = () => setTestAnswers({});
 
@@ -100,45 +131,55 @@ export default function FormEditorPage() {
 
   useEffect(() => {
     const loadForm = async () => {
-      if (!urlId) return; // 新規作成（URLにIDがない）時は何もしない
+      if (!urlId) {
+        setIsInitialLoading(false);
+        return; 
+      }
 
-      // 1. フォーム情報を取得
-      const { data: form } = await supabase.from('forms').select('*').eq('id', urlId).maybeSingle();
-      if (form) {
-        setTitle(form.title || '');
-        setDescription(form.description || '');
+      try {
+        // 1. フォーム情報を取得
+        const { data: form } = await supabase.from('forms').select('*').eq('id', urlId).maybeSingle();
+        if (form) {
+          setTitle(form.title || '');
+          setDescription(form.description || '');
 
-        setFormStatus(form.status || 'draft');
-        setCurrentDueDate(form.due_date || '');
-        setCurrentIsAnonymous(form.allow_anonymous || false);
-        setCurrentAssignedUsers(form.publish_settings?.assigned_user_ids || []);
+          setFormStatus(form.status || 'draft');
+          setCurrentDueDate(form.due_date || '');
+          setCurrentIsAnonymous(form.allow_anonymous || false);
+          setCurrentAssignedUsers(form.publish_settings?.assigned_user_ids || []);
 
-        // 2. 紐付いている質問を順番通りに取得
-        const { data: qLinks } = await supabase
-          .from('form_questions')
-          .select('*, questions(*)')
-          .eq('form_id', urlId)
-          .order('order_index', { ascending: true });
+          // 2. 紐付いている質問を順番通りに取得
+          const { data: qLinks } = await supabase
+            .from('form_questions')
+            .select('*, questions(*)')
+            .eq('form_id', urlId)
+            .order('order_index', { ascending: true });
 
-        if (qLinks && qLinks.length > 0) {
-          const loadedQuestions = qLinks.map(link => {
-            const q = link.questions;
-            return {
-              id: q.id,
-              title: q.title || '',
-              description: '', // DBのdescriptionカラムがない場合は空
-              type: q.question_type || 'radio',
-              // 以下の設定値はJSONBから安全に復元（なければ初期値をセット）
-              options: q.options?.choices || [{ id: 1, text: '' }, { id: 2, text: '' }],
-              scale: q.options?.scale || { min: 1, max: 5, minLabel: '', maxLabel: '' },
-              gridRows: q.options?.gridRows || [{ id: 1, text: '' }],
-              gridCols: q.options?.gridCols || [{ id: 1, text: '' }],
-              gridInputType: q.options?.gridInputType || 'radio',
-              shortTextValidation: q.options?.validation || { enabled: false, type: 'number', condition: 'between', value1: '', value2: '', errorMsg: '' }
-            };
-          });
-          setQuestions(loadedQuestions);
+          if (qLinks && qLinks.length > 0) {
+            const loadedQuestions = qLinks.map(link => {
+              const q = link.questions;
+              return {
+                id: q.id,
+                title: q.title || '',
+                description: q.description || '',
+                type: q.question_type || 'radio',
+                isRequired: link.is_required || false,
+                options: q.options?.choices || [{ id: 1, text: '' }, { id: 2, text: '' }],
+                scale: q.options?.scale || { min: 1, max: 5, minLabel: '', maxLabel: '' },
+                gridRows: q.options?.gridRows || [{ id: 1, text: '' }],
+                gridCols: q.options?.gridCols || [{ id: 1, text: '' }],
+                gridInputType: q.options?.gridInputType || 'radio',
+                shortTextValidation: q.options?.validation || { enabled: false, type: 'number', condition: 'between', value1: '', value2: '', errorMsg: '' }
+              };
+            });
+            setQuestions(loadedQuestions);
+            setActiveQuestionId(loadedQuestions[0].id);
+          }
         }
+      } catch (err) {
+        console.error("読み込みエラー:", err);
+      } finally {
+        setIsInitialLoading(false);
       }
     };
     loadForm();
@@ -148,6 +189,7 @@ export default function FormEditorPage() {
     if (!hasUnsavedChanges) return;
 
     const timer = setTimeout(async () => {
+      setHasUnsavedChanges(false);
       setIsSaving(true);
       try {
         console.log(`[Auto Save] バックエンドに保存中...`);
@@ -165,9 +207,9 @@ export default function FormEditorPage() {
         if (!response.ok) throw new Error('保存に失敗しました');
         
         setLastSavedTime(new Date());
-        setHasUnsavedChanges(false);
       } catch (err) {
         console.error("保存エラー:", err);
+        setHasUnsavedChanges(true);
       } finally {
         setIsSaving(false);
       }
@@ -177,7 +219,7 @@ export default function FormEditorPage() {
 
   const handleTitleChange = (newTitle: string) => {
     setTitle(newTitle);
-    setHasUnsavedChanges(true); // 変更があったことをマーク！
+    setHasUnsavedChanges(true);
   };
 
   const handleDescriptionChange = (newDescription: string) => {
@@ -205,7 +247,9 @@ export default function FormEditorPage() {
   };
 
   const handleEditorScroll = () => {
-    if (scrollingPane.current !== 'editor') return; // 主導権がない時は無視
+    if (scrollingPane.current === 'preview') return;
+
+    handleScrollSelection();
     
     const editor = editorScrollRef.current;
     const preview = previewScrollRef.current;
@@ -226,14 +270,19 @@ export default function FormEditorPage() {
 
     const scrollPercentage = preview.scrollTop / (preview.scrollHeight - preview.clientHeight);
     editor.scrollTop = scrollPercentage * (editor.scrollHeight - editor.clientHeight);
+    handleScrollSelection();
   };
+
+  if (isInitialLoading) {
+    return <FormEditorSkeleton />;
+  }
 
   if (viewMode === 'send') {
     return (
       <div className="h-full w-full flex bg-blue-50 overflow-hidden animate-in fade-in duration-300">
-        {/* 左側：最新の共通UI（FormAnswerUI）を使用したプレビュー表示 */}
-        <div className="flex-[1.5] h-full overflow-y-auto shadow-xl z-10 bg-blue-50 border-r border-gray-200">
-          <FormAnswerUI 
+        {/* 🌟 修正1： hidden md:block でスマホでは左側を消す！ */}
+        <div className="hidden md:block flex-[1.5] h-full overflow-y-auto shadow-xl z-10 bg-blue-50 border-r border-gray-200">
+          <FormAnswerUI
             title={title}
             description={description}
             questions={questions}
@@ -365,27 +414,19 @@ export default function FormEditorPage() {
           {/* アクションボタン群 */}
           <div className="flex items-center gap-1 md:gap-3">
           <button 
-            onClick={() => setViewMode(viewMode === 'preview' ? 'edit' : 'preview')}
-            className={`p-2 rounded-full transition-colors ${viewMode === 'preview' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
-            title="プレビュー"
-          >
-            <Eye className="w-5 h-5" />
-          </button>
+              onClick={() => setViewMode(viewMode === 'preview' ? 'edit' : 'preview')} 
+              className={`flex p-2 rounded-full transition-colors ${viewMode === 'preview' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
+              title="プレビュー"
+            >
+              <Eye className="w-5 h-5" />
+            </button>
             
-          <button 
-            onClick={() => setViewMode('send')}
-            className={`px-5 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm text-white ${formStatus === 'published' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
-          >
-            {formStatus === 'published' ? (
-              <><Globe className="w-4 h-4" />公開済み</>
-            ) : (
-              <><Send className="w-4 h-4" />送信</>
-            )}
-          </button>
+            <button onClick={() => setViewMode('send')} className={`px-5 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm text-white ${formStatus === 'published' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+              {formStatus === 'published' ? (<><Globe className="w-4 h-4" />公開済み</>) : (<><Send className="w-4 h-4" />送信</>)}
+            </button>
           </div>
         </div>
       </div>
-      {/* --- ツールバーここまで --- */}
 
 
       {/* --- メインエリア (分割対応) --- */}
@@ -395,11 +436,15 @@ export default function FormEditorPage() {
         <div 
           ref={editorScrollRef}
           onScroll={handleEditorScroll}
-          onMouseEnter={() => scrollingPane.current = 'editor'} // マウスが乗ったら主導権を獲得
-          className={`flex-1 overflow-y-auto transition-all duration-500 ${viewMode === 'preview' ? 'flex-[1.2]' : 'flex-1'}`}
+          onMouseEnter={() => scrollingPane.current = 'editor'}
+          className={`
+            flex-1 overflow-y-auto transition-all duration-500
+            ${viewMode === 'preview' ? 'hidden md:block md:flex-[1.2]' : 'block'}
+          `}
         >
-          <div className="py-10 flex flex-col items-center pb-32">
-            <div className="w-full max-w-3xl px-4">
+          {/* ボトムツールバーがかぶらないように pb-32 を md:pb-48 などに広げてもOK */}
+          <div className="py-10 flex flex-col items-center pb-48">
+          <div className={`w-full px-4 ${viewMode === 'preview' ? 'md:max-w-[80%]' : 'md:max-w-[80%] lg:max-w-3xl'}`}>
               
               <TitleBox 
                 title={title}
@@ -411,11 +456,18 @@ export default function FormEditorPage() {
               {questions.map((question, index) => (
                 <React.Fragment key={question.id}>
                   <InsertDivider onInsert={() => insertQuestionAt(index)} />
-                  <QuestionBox
-                    question={question}
-                    onChange={(updates) => handleQuestionChange(question.id, updates)}
-                    onDelete={() => deleteQuestion(question.id)} 
-                  />
+                  <div 
+                    id={`box-${question.id}`}
+                    onClick={() => setActiveQuestionId(question.id)}
+                    className="w-full relative"
+                  >
+                    <QuestionBox
+                      question={question}
+                      isActive={activeQuestionId === question.id}
+                      onChange={(updates) => handleQuestionChange(question.id, updates)}
+                      onDelete={() => deleteQuestion(question.id)} 
+                    />
+                  </div>
                 </React.Fragment>
               ))}
 
@@ -440,8 +492,8 @@ export default function FormEditorPage() {
           <div 
             ref={previewScrollRef}
             onScroll={handlePreviewScroll}
-            onMouseEnter={() => scrollingPane.current = 'preview'} // マウスが乗ったら主導権を獲得
-            className="w-[45%] h-full relative animate-in slide-in-from-right duration-300 bg-blue-50 overflow-y-auto border-l border-gray-200 shadow-inner"
+            onMouseEnter={() => scrollingPane.current = 'preview'}
+            className="w-full lg:w-[45%] h-full relative animate-in lg:slide-in-from-right duration-300 bg-blue-50 overflow-y-auto lg:border-l border-gray-200 shadow-inner"
           >
             <FormAnswerUI 
               title={title}
@@ -449,7 +501,9 @@ export default function FormEditorPage() {
               questions={questions}
               answers={testAnswers}
               onAnswerChange={(qid, val) => setTestAnswers(prev => ({ ...prev, [qid]: val }))}
-              onSubmit={() => alert("プレビュー送信テスト:\n" + JSON.stringify(testAnswers, null, 2))}
+              onSubmit={(token) => {
+                alert("プレビュー送信テスト:\n" + JSON.stringify(testAnswers, null, 2) + "\n\nTurnstile Token: " + token);
+              }}
               mode="preview"
               onOpenFullScreen={openFullPreview}
               onClearAnswers={clearAnswers}
@@ -487,6 +541,74 @@ function TitleBox({
         value={description}
         onChange={(html) => onDescriptionChange(html)}
       />
+    </div>
+  );
+}
+
+// FormEditorPage.tsx のファイルの末尾などに追加
+
+function FormEditorSkeleton() {
+  return (
+    <div className="h-full w-full bg-blue-50 flex flex-col overflow-hidden animate-pulse">
+      
+      {/* ツールバーのスケルトン */}
+      <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-3 flex items-center justify-between sticky top-0 z-50 shadow-sm flex-shrink-0">
+        <div className="flex items-center gap-4">
+          <div className="w-9 h-9 bg-gray-200 rounded-full" />
+          <div className="w-48 h-7 bg-gray-200 rounded-md" />
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="w-24 h-5 bg-gray-200 rounded-md hidden md:block" />
+          <div className="w-px h-6 bg-gray-200 hidden md:block" />
+          <div className="w-9 h-9 bg-gray-200 rounded-full" />
+          <div className="w-24 h-10 bg-gray-200 rounded-lg" />
+        </div>
+      </div>
+
+      {/* メインエリアのスケルトン */}
+      <div className="flex-1 overflow-y-auto py-10 flex flex-col items-center pb-32">
+        <div className="w-full max-w-3xl px-4 space-y-6">
+          
+          {/* TitleBox のスケルトン */}
+          <div className="w-full bg-white rounded-xl shadow-sm border-t-8 border-t-blue-200 p-6">
+            <div className="w-2/3 h-10 bg-gray-200 rounded-md mb-6" />
+            <div className="w-full h-24 bg-gray-100 rounded-md" />
+          </div>
+
+          {/* QuestionBox のスケルトン 1 */}
+          <div className="w-full bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col md:flex-row gap-6">
+            <div className="flex-1 space-y-4">
+              <div className="w-3/4 h-12 bg-gray-200 rounded-md" />
+              <div className="space-y-4 pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 rounded-full bg-gray-200" />
+                  <div className="w-1/3 h-5 bg-gray-100 rounded" />
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 rounded-full bg-gray-200" />
+                  <div className="w-1/4 h-5 bg-gray-100 rounded" />
+                </div>
+              </div>
+            </div>
+            <div className="w-full md:w-1/3 h-12 bg-gray-100 rounded-md" />
+          </div>
+
+          {/* QuestionBox のスケルトン 2 */}
+          <div className="w-full bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col md:flex-row gap-6">
+            <div className="flex-1 space-y-4">
+              <div className="w-1/2 h-12 bg-gray-200 rounded-md" />
+              <div className="space-y-4 pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 rounded-full bg-gray-200" />
+                  <div className="w-2/5 h-5 bg-gray-100 rounded" />
+                </div>
+              </div>
+            </div>
+            <div className="w-full md:w-1/3 h-12 bg-gray-100 rounded-md" />
+          </div>
+
+        </div>
+      </div>
     </div>
   );
 }

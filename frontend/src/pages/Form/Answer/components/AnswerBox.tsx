@@ -1,14 +1,15 @@
 import React from 'react';
 import type { QuestionData } from '../../FormEditor/FormEditorPage';
-import RichTextEditor from '../../../../components/ui/RichTextEditor';
+import RichTextEditor, {richTextStyles} from '../../../../components/ui/RichTextEditor';
 
 type Props = {
   question: QuestionData;
   answer: any;
   onChange: (newAnswer: any) => void;
+  error?: string;
 };
 
-export default function AnswerBox({ question, answer, onChange }: Props) {
+export default function AnswerBox({ question, answer, onChange, error }: Props) {
   
   // --- 各質問タイプの入力UI ---
 
@@ -261,16 +262,30 @@ export default function AnswerBox({ question, answer, onChange }: Props) {
   );
 
   return (
-    <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-200 space-y-4 hover:border-blue-200 transition-all">
-      <div className="flex gap-2 mb-2">
+    <div 
+      id={`question-${question.id}`} // 🌟 追加：自動スクロールの目的地
+      className={`bg-white p-6 md:p-8 rounded-xl shadow-sm border space-y-4 transition-all
+        ${error ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-200 hover:border-violet-200'} 
+      `}
+    >
+      <div className="flex gap-2 mb-2 items-center">
         <h3 className="font-bold text-gray-800 text-lg leading-relaxed">{question.title || '無題の質問'}</h3>
+        {/* 必須マークの表示 */}
+        {question.isRequired && <span className="text-red-500 font-bold">*</span>}
       </div>
       
       {question.description && (
         <div 
-          className="text-sm text-gray-500 prose prose-sm max-w-none" 
+          className={richTextStyles}
           dangerouslySetInnerHTML={{ __html: question.description }} 
         />
+      )}
+
+      {error && (
+        <div className="text-red-600 text-sm font-bold flex items-center gap-1.5 bg-red-50 p-3 rounded-lg border border-red-100 animate-in fade-in slide-in-from-top-1">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          {error}
+        </div>
       )}
       
       <div className="pt-2">

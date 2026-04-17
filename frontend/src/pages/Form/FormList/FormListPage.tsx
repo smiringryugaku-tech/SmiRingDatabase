@@ -62,10 +62,17 @@ export default function FormListPage() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden min-h-[200px]">
           {/* 🌟 ロード中・空っぽ・一覧表示の出し分け */}
           {isLoading ? (
-            <div className="py-16 text-center text-gray-400">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p>読み込み中...</p>
-            </div>
+            <ul className="divide-y divide-gray-100 animate-pulse">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <li key={i} className="p-4 flex justify-between items-center">
+                  <div className="w-1/2 space-y-2">
+                    <div className="h-5 bg-gray-200 rounded w-2/3" />
+                    <div className="h-3 bg-gray-100 rounded w-1/3" />
+                  </div>
+                  <div className="h-6 w-16 bg-gray-200 rounded-full" />
+                </li>
+              ))}
+            </ul>
           ) : forms.length === 0 ? (
             <div className="py-16 text-center text-gray-400">
               <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">

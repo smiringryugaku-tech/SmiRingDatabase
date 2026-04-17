@@ -79,6 +79,57 @@ app.get('/api/basic_profile_info/me', async (req: Request, res: Response) => {
 });
 
 // ==========================================
+// 📖 フォーム＆質問の取得 API
+// ==========================================
+app.get('/api/forms/:id', async (req: Request, res: Response) => {
+  const { id: formId } = req.params;
+
+  try {
+    // 1. フォーム本体を取得
+    const { data: form, error: formError } = await supabase
+      .from('forms')
+      .select('*')
+      .eq('id', formId)
+      .single();
+
+    if (formError || !form) return res.status(404).json({ error: 'フォームが見つかりません' });
+
+    // 2. 紐付いている質問を順番通りに取得
+    const { data: qLinks, error: qError } = await supabase
+      .from('form_questions')
+      .select('*, questions(*)')
+      .eq('form_id', formId)
+      .order('order_index', { ascending: true });
+
+    if (qError) throw qError;
+
+    // 3. フロントエンドが使いやすい形に整形して返す
+    const questions = qLinks?.map(link => {
+      const q = link.questions;
+      return {
+        id: q.id,
+        title: q.title || '',
+        description: q.description || '', 
+        type: q.question_type || 'radio',
+        isRequired: link.is_required,
+        options: q.options?.choices || [],
+        scale: q.options?.scale || { min: 1, max: 5, minLabel: '', maxLabel: '' },
+        gridRows: q.options?.gridRows || [],
+        gridCols: q.options?.gridCols || [],
+        gridInputType: q.options?.gridInputType || 'radio',
+        shortTextValidation: q.options?.validation || { enabled: false }
+      };
+    }) || [];
+
+    res.json({ ...form, questions });
+
+  } catch (error: any) {
+    console.error("Fetch Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
 // 📝 フォーム＆質問の一括保存 API (Step 1追加)
 // ==========================================
 app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
@@ -86,6 +137,14 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
   const { title, description, questions, created_by } = req.body;
 
   try {
+    const { data: existingForm } = await supabase
+      .from('forms')
+      .select('status')
+      .eq('id', formId)
+      .single();
+
+    const currentStatus = existingForm?.status || 'draft';
+
     // 1. フォーム本体をUpsert
     const { error: formError } = await supabase
       .from('forms')
@@ -93,7 +152,7 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
         id: formId,
         title,
         description,
-        status: 'draft',
+        status: currentStatus,
         created_by,
         updated_at: new Date().toISOString(),
       });
@@ -106,8 +165,8 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
         .upsert({
           id: q.id,
           title: q.title,
+          description: q.description,
           question_type: q.type,
-          // UIの細かい設定はすべてoptionsにJSONBとしてまとめる！
           options: {
             choices: q.options,
             scale: q.scale,
@@ -128,7 +187,7 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
       form_id: formId,
       question_id: q.id,
       order_index: index,
-      is_required: false
+      is_required: q.isRequired || false
     }));
 
     if (formQuestionsData.length > 0) {
@@ -181,55 +240,84 @@ app.post('/api/forms/:id/publish', async (req: Request, res: Response) => {
 });
 
 // ==========================================
-// 📖 フォーム＆質問の取得 API
+// 💾 フォーム回答の「下書き」保存 API
 // ==========================================
-app.get('/api/forms/:id', async (req: Request, res: Response) => {
+app.post('/api/forms/:id/responses/save', async (req: Request, res: Response) => {
   const { id: formId } = req.params;
+  const { content, user_id } = req.body;
+
+  if (!user_id) return res.status(401).json({ error: 'ログインが必要です' });
 
   try {
-    // 1. フォーム本体を取得
-    const { data: form, error: formError } = await supabase
-      .from('forms')
-      .select('*')
-      .eq('id', formId)
-      .single();
+    // 🌟 form_responses テーブルに保存 (upsert)
+    // ON CONFLICT (form_id, user_id) によって、既存なら更新、なければ挿入される
+    const { error } = await supabase
+      .from('form_responses')
+      .upsert({
+        form_id: formId,
+        user_id: user_id,
+        content: content, // { qid: value } の形のJSON
+        status: 'draft',
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'form_id,user_id' });
 
-    if (formError || !form) return res.status(404).json({ error: 'フォームが見つかりません' });
-
-    // 2. 紐付いている質問を順番通りに取得
-    const { data: qLinks, error: qError } = await supabase
-      .from('form_questions')
-      .select('*, questions(*)')
-      .eq('form_id', formId)
-      .order('order_index', { ascending: true });
-
-    if (qError) throw qError;
-
-    // 3. フロントエンドが使いやすい形に整形して返す
-    const questions = qLinks?.map(link => {
-      const q = link.questions;
-      return {
-        id: q.id,
-        title: q.title || '',
-        description: '', 
-        type: q.question_type || 'radio',
-        options: q.options?.choices || [],
-        scale: q.options?.scale || { min: 1, max: 5, minLabel: '', maxLabel: '' },
-        gridRows: q.options?.gridRows || [],
-        gridCols: q.options?.gridCols || [],
-        gridInputType: q.options?.gridInputType || 'radio',
-        shortTextValidation: q.options?.validation || { enabled: false }
-      };
-    }) || [];
-
-    res.json({ ...form, questions });
-
+    if (error) throw error;
+    res.json({ message: "下書きを保存しました" });
   } catch (error: any) {
-    console.error("Fetch Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
+// ==========================================
+// 📥 フォーム回答の送信 API (改良版)
+// ==========================================
+app.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
+  const { id: formId } = req.params;
+  const { answers, turnstileToken, user_id } = req.body;
+
+  try {
+    // 1. Turnstile 検証 (既存のまま)
+    const verifyResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: process.env.TURNSTILE_SECRET_KEY, response: turnstileToken })
+    });
+    const verifyData = await verifyResponse.json();
+    if (!verifyData.success) return res.status(400).json({ error: 'Bot検知失敗' });
+
+    // 🌟 2. form_responses テーブルを「提出済み」に更新
+    // これにより「下書き」だったレコードが「提出済み」に昇格する
+    const { error: responseError } = await supabase
+      .from('form_responses')
+      .upsert({
+        form_id: formId,
+        user_id: user_id,
+        content: answers,
+        status: 'submitted',
+        submitted_at: new Date().toISOString()
+      }, { onConflict: 'form_id,user_id' });
+
+    if (responseError) throw responseError;
+
+    // 3. 個別の回答データを answers テーブルに保存 (集計用・既存のまま)
+    const answerRecords = Object.entries(answers).map(([qId, value]) => ({
+      form_id: formId,
+      question_id: qId,
+      user_id: user_id || null,
+      answer_data: { value },
+      created_at: new Date().toISOString()
+    }));
+
+    if (answerRecords.length > 0) {
+      const { error: saveError } = await supabase.from('answers').insert(answerRecords);
+      if (saveError) throw saveError;
+    }
+
+    res.json({ message: "回答を受け付けました！ありがとうございます。" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // ==========================================
 // 📋 自分のフォーム一覧を取得する API

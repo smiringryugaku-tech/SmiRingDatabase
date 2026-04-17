@@ -4,44 +4,49 @@ import { supabase } from '../../lib/supabase';
 
 export default function HomePage() {
   const navigate = useNavigate();
+  
   return (
-    <div className="flex h-full w-full overflow-hidden bg-white text-gray-900">
+    // 🌟 修正1: 画面全体で1つのスクロールバーを持つ、最もシンプルで確実な設定
+    <div className="h-full w-full overflow-y-auto bg-white text-gray-900 scroll-smooth">
       
-      {/* --- 左側：メインコンテンツ (Flutter: Expanded(flex: 3)) --- */}
-      <div className="flex-[3] p-8 md:p-10 overflow-y-auto">
+      {/* 🌟 修正2: sticky や items-start などの複雑な制御をすべて外し、素直な flex に戻す */}
+      <div className="flex flex-col lg:flex-row min-h-full">
         
-        {/* 横長ロゴ (Flutter: Column > Center > AspectRatio) */}
-        <div className="flex justify-center mb-12">
-          <img 
-            src="/assets/images/smiring_logo_side_by_side.png" 
-            alt="SmiRing Logo" 
-            className="max-w-[600px] w-full object-contain"
+        {/* --- 左側（メインコンテンツ） --- */}
+        <div className="flex-1 min-w-0 p-6 md:p-10">
+          
+          <div className="flex justify-center mb-12">
+            <img 
+              src="/assets/images/smiring_logo_side_by_side.png" 
+              alt="SmiRing Logo" 
+              className="max-w-[600px] w-full object-contain"
+            />
+          </div>
+
+          <HomeSearchBar />
+          <HomeQuickActionButtons />
+
+          <HorizontalSection 
+            title="Profiles" 
+            imageAsset="/assets/images/profile_photo_empty.png"
+            itemTitlePrefix="Name"
+            onClickMore={() => navigate('/members')}
+          />
+
+          <HorizontalSection 
+            title="Photo Gallery" 
+            imageAsset="/assets/images/photo_empty.png"
+            itemTitlePrefix="Photo"
+            onClickMore={() => navigate('/gallery')}
           />
         </div>
 
-        <HomeSearchBar />
-        <HomeQuickActionButtons />
+        {/* --- 右側：サイドパネル (追従/Sticky) --- */}
+        {/* 🌟 修正4：PC時のみ固定幅＆追従(sticky)にする魔法のクラス！ */}
+        <div className="w-full shrink-0 lg:w-[320px] xl:w-[380px] bg-gray-50 border-t lg:border-t-0 lg:border-l border-gray-200">
+          <RightPanel />
+        </div>
 
-        {/* Profiles セクション (Flutter: HorizontalContentList) */}
-        <HorizontalSection 
-          title="Profiles" 
-          imageAsset="/assets/images/profile_photo_empty.png"
-          itemTitlePrefix="Name"
-          onClickMore={() => navigate('/members')}
-        />
-
-        {/* Photo Gallery セクション (Flutter: HorizontalContentList) */}
-        <HorizontalSection 
-          title="Photo Gallery" 
-          imageAsset="/assets/images/photo_empty.png"
-          itemTitlePrefix="Photo"
-          onClickMore={() => navigate('/gallery')}
-        />
-      </div>
-
-      {/* --- 右側：サイドパネル (Flutter: Expanded(flex: 1)) --- */}
-      <div className="flex-1 bg-gray-50 border-l border-gray-200 overflow-y-auto">
-        <RightPanel />
       </div>
     </div>
   );
@@ -55,7 +60,6 @@ function HomeSearchBar() {
   return (
     <div className="w-full max-w-2xl mx-auto mb-6 relative">
       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-        {/* 虫眼鏡アイコン */}
         <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
@@ -69,20 +73,16 @@ function HomeSearchBar() {
   );
 }
 
-// --- 3つのクイックアクションボタン ---
 function HomeQuickActionButtons() {
   const navigate = useNavigate();
 
   const handleCreateNewForm = () => {
-    // DBにはまだ保存せず、ランダムなIDだけを作って編集画面へ飛ぶ！
     const newFormId = crypto.randomUUID();
     navigate(`/form-editor/${newFormId}`);
-    console.log(`新しいフォームID: ${newFormId} の編集画面へ遷移します`);
   };
 
   return (
     <div className="flex justify-center gap-4 mb-12 flex-wrap">
-      {/* メンバーボタン */}
       <QuickActionButton 
         label="Members" 
         onClick={() => navigate('/members')}
@@ -92,7 +92,6 @@ function HomeQuickActionButtons() {
           </svg>
         }
       />
-      {/* ギャラリーボタン */}
       <QuickActionButton 
         label="Gallery" 
         onClick={() => navigate('/gallery')}
@@ -102,7 +101,6 @@ function HomeQuickActionButtons() {
           </svg>
         }
       />
-      {/* フォーム作成ボタン */}
       <QuickActionButton 
         label="Create Form" 
         onClick={() => handleCreateNewForm()} 
@@ -116,7 +114,6 @@ function HomeQuickActionButtons() {
   );
 }
 
-// --- クイックアクションボタンの共通デザイン ---
 function QuickActionButton({ label, icon, onClick }: { label: string, icon: React.ReactNode, onClick: () => void }) {
   return (
     <button 
@@ -129,9 +126,7 @@ function QuickActionButton({ label, icon, onClick }: { label: string, icon: Reac
   );
 }
 
-// --- 横スクロールセクション ---
 function HorizontalSection({ title, imageAsset, itemTitlePrefix, onClickMore }: any) {
-  // 10個のダミー配列を作成
   const dummyItems = Array.from({ length: 10 });
 
   return (
@@ -139,15 +134,13 @@ function HorizontalSection({ title, imageAsset, itemTitlePrefix, onClickMore }: 
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold m-0">{title}</h2>
         <button 
-          className="bg-none border-none text-blue-700 cursor-pointer text-sm hover:text-blue-900" 
+          className="bg-none border-none text-blue-700 cursor-pointer text-sm hover:text-blue-900 font-bold" 
           onClick={onClickMore}
         >
           もっと見る
         </button>
       </div>
       
-      {/* 横スクロールエリア (Flutter: ListView.horizontal) */}
-      {/* Tailwind: flex, space-x-4 (gap相当), overflow-x-auto */}
       <div className="flex space-x-4 overflow-x-auto pb-4 scroll-smooth webkit-overflow-scrolling-touch scrollbar-thin scrollbar-thumb-gray-300">
         {dummyItems.map((_, index) => (
           <ContentCard 
@@ -161,19 +154,16 @@ function HorizontalSection({ title, imageAsset, itemTitlePrefix, onClickMore }: 
   );
 }
 
-// --- コンテンツカード ---
 function ContentCard({ imageAsset, title }: any) {
   return (
-    // Flutter: Card + Column + Padding
-    // min-widthは220px固定にします。shrink-0で縮まないように。
-    <div className="min-width-[160px] w-[220px] flex-shrink-0 flex flex-col bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200">
-      <div className="aspect-[4/3] w-full bg-gray-100">
-        <img src={imageAsset} alt={title} className="w-full h-full object-cover" />
+    <div className="min-width-[160px] w-[220px] flex-shrink-0 flex flex-col bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200 cursor-pointer border border-gray-100">
+      <div className="aspect-[4/3] w-full bg-gray-100 overflow-hidden group">
+        <img src={imageAsset} alt={title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
       </div>
       <div className="p-3 flex-1 flex flex-col justify-center">
-        <h3 className="text-base font-bold m-0 mb-1 truncate">{title}</h3>
-        <p className="text-xs text-gray-600 m-0 truncate">
-          Some information is shown here. This text might be long.
+        <h3 className="text-base font-bold m-0 mb-1 truncate text-gray-800">{title}</h3>
+        <p className="text-xs text-gray-500 m-0 truncate">
+          Some information is shown here.
         </p>
       </div>
     </div>
@@ -181,19 +171,18 @@ function ContentCard({ imageAsset, title }: any) {
 }
 
 // --- 右側のパネル全体 ---
-// --- 右側のパネル全体 ---
 function RightPanel() {
   const navigate = useNavigate();
   return (
-    <div className="p-6 flex flex-col h-full">
+    <div className="p-6 md:p-8 flex flex-col h-full">
       {/* 1. User Profile Section */}
       <UserProfileCard />
 
-      {/* 2. Calendar Section (本物のカレンダーUI！) */}
+      {/* 2. Calendar Section */}
       <h3 className="text-xl font-bold m-0 mb-3 text-gray-800">Calendar</h3>
       <MiniCalendar />
 
-      {/* 3. My Forms (最新3件) */}
+      {/* 3. My Forms */}
       <div className="flex justify-between items-center mt-8 mb-3">
         <h3 className="text-xl font-bold m-0 text-gray-800">My Forms</h3>
         <button 
@@ -205,20 +194,23 @@ function RightPanel() {
       </div>
       <MyRecentForms />
 
-      {/* 4. Timeline Section (アサインされたフォーム) */}
+      {/* 4. Timeline Section */}
       <h3 className="text-xl font-bold m-0 mb-3 mt-8 text-gray-800">Assigned to You</h3>
-      <div className="flex-1 overflow-y-auto">
+      <div>
         <AssignedFormsTimeline />
       </div>
     </div>
   );
 }
 
-
+// --------------------------------------------------------
+// 以下は前回から変更なしのコンポーネントです
+// (MiniCalendar, UserProfileCard, MyRecentForms, AssignedFormsTimeline)
+// --------------------------------------------------------
 
 function MiniCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [isSelectingMonth, setIsSelectingMonth] = useState(false); // 🌟 年月選択モードのState
+  const [isSelectingMonth, setIsSelectingMonth] = useState(false);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -235,7 +227,6 @@ function MiniCalendar() {
   const handlePrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
   const handleNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
 
-  // --- 年月選択モード ---
   if (isSelectingMonth) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm h-[280px] flex flex-col">
@@ -268,11 +259,9 @@ function MiniCalendar() {
     );
   }
 
-  // --- 通常のカレンダーモード ---
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
       <div className="flex justify-between items-center mb-4 px-2">
-        {/* 🌟 クリックで月選択モードへ */}
         <button 
           onClick={() => setIsSelectingMonth(true)}
           className="font-bold text-gray-800 hover:text-blue-600 transition-colors"
@@ -307,7 +296,6 @@ function MiniCalendar() {
   );
 }
 
-// --- ユーザープロフィールカード (既存のまま) ---
 function UserProfileCard() {
   const navigate = useNavigate();
   const [profileData, setProfileData] = useState<any>(null);
@@ -371,7 +359,6 @@ function UserProfileCard() {
   );
 }
 
-// --- マイフォーム（最新3件） ---
 function MyRecentForms() {
   const navigate = useNavigate();
   const [recentForms, setRecentForms] = useState<any[]>([]);
@@ -390,7 +377,6 @@ function MyRecentForms() {
         
         if (response.ok) {
           const data = await response.json();
-          // 🌟 最新の3件だけを切り取ってStateにセット
           setRecentForms(data.slice(0, 3));
         }
       } catch (error) {
@@ -448,7 +434,6 @@ function MyRecentForms() {
   );
 }
 
-// --- タイムライン（アサインされたフォーム） ---
 function AssignedFormsTimeline() {
   const navigate = useNavigate();
   const [assignedForms, setAssignedForms] = useState<any[]>([]);
@@ -458,23 +443,43 @@ function AssignedFormsTimeline() {
     const fetchAssignedForms = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id;
         const token = session?.access_token;
-        if (!token) return;
+        if (!token || !userId) return;
 
+        // 🌟 1. APIからアサインされたフォーム一覧を取得
         const response = await fetch('http://localhost:3000/api/assigned-forms', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
         if (response.ok) {
-          const data = await response.json();
-          
-          // 🌟 締め切り日が近い順に並べ替え（nullのものは最後に回す）
-          const sorted = data.sort((a: any, b: any) => {
+          const formsData = await response.json();
+          const formIds = formsData.map((f: any) => f.id);
+
+          // 🌟 2. 取得したフォームID群に対して、自分の回答状況をSupabaseから直接取得
+          const { data: responsesData } = await supabase
+            .from('form_responses')
+            .select('form_id, status')
+            .in('form_id', formIds)
+            .eq('user_id', userId);
+
+          // 🌟 3. フォーム情報と回答ステータスをマージする
+          const mergedData = formsData.map((form: any) => {
+            const myResponse = responsesData?.find(r => r.form_id === form.id);
+            return {
+              ...form,
+              // ステータスが 'submitted' なら回答済み！
+              isSubmitted: myResponse?.status === 'submitted' 
+            };
+          });
+
+          // 4. ソート（未回答の期限が近い順など）
+          const sorted = mergedData.sort((a: any, b: any) => {
             if (!a.due_date) return 1;
             if (!b.due_date) return -1;
             return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
           });
-          
+
           setAssignedForms(sorted);
         }
       } catch (error) {
@@ -512,30 +517,49 @@ function AssignedFormsTimeline() {
     <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
       <div className="flex flex-col space-y-4">
         {assignedForms.map((form, index) => {
-          // 締め切りまでの日数を計算
-          const isOverdue = form.due_date && new Date(form.due_date) < new Date();
-          const isSoon = form.due_date && (new Date(form.due_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24) <= 3;
+          const isSubmitted = form.isSubmitted;
+          // 期限切れ・期限間近の判定は「未回答」の時だけ有効にする
+          const isOverdue = !isSubmitted && form.due_date && new Date(form.due_date) < new Date();
+          const isSoon = !isSubmitted && form.due_date && (new Date(form.due_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24) <= 3;
 
           return (
             <div 
               key={form.id} 
-              className="flex items-start group cursor-pointer"
+              className={`flex items-start group cursor-pointer transition-all ${isSubmitted ? 'opacity-60 hover:opacity-100' : ''}`}
               onClick={() => handleFormClick(form.id)}
             >
               {/* タイムラインの線と丸 */}
               <div className="flex flex-col items-center mr-4 mt-1 flex-shrink-0">
-                <div className={`w-3.5 h-3.5 rounded-full border-2 ${isOverdue ? 'border-red-500 bg-red-100' : isSoon ? 'border-orange-500 bg-orange-100' : 'border-blue-500 bg-blue-100'}`}></div>
+                <div className={`w-3.5 h-3.5 rounded-full border-2 transition-colors ${
+                  isSubmitted ? 'border-green-500 bg-green-50' : 
+                  isOverdue ? 'border-red-500 bg-red-100' : 
+                  isSoon ? 'border-orange-500 bg-orange-100' : 
+                  'border-blue-500 bg-blue-100'
+                }`}>
+                  {/* 回答済みなら小さなチェックを入れるとおしゃれです */}
+                  {isSubmitted && <div className="w-full h-full flex items-center justify-center text-green-600"><svg className="w-2 h-2" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/></svg></div>}
+                </div>
                 {index !== assignedForms.length - 1 && (
                   <div className="w-[2px] h-12 bg-gray-100 mt-2"></div>
                 )}
               </div>
               
               {/* コンテンツ */}
-              <div className="flex-1 bg-gray-50 group-hover:bg-blue-50 rounded-lg p-3 transition-colors border border-transparent group-hover:border-blue-100">
-                <h5 className="font-bold text-sm text-gray-800 m-0 mb-1 group-hover:text-blue-800">{form.title || '無題のフォーム'}</h5>
+              <div className={`flex-1 rounded-lg p-3 transition-colors border border-transparent 
+                ${isSubmitted ? 'bg-gray-50/50' : 'bg-gray-50 group-hover:bg-blue-50 group-hover:border-blue-100'}
+              `}>
+                <h5 className={`font-bold text-sm m-0 mb-1 transition-colors ${
+                  isSubmitted ? 'text-gray-400 line-through' : 'text-gray-800 group-hover:text-blue-800'
+                }`}>
+                  {form.title || '無題のフォーム'}
+                </h5>
                 
                 <div className="flex items-center gap-2 text-[11px] font-bold">
-                  {form.due_date ? (
+                  {isSubmitted ? (
+                    <span className="text-green-600 flex items-center gap-1">
+                      ✅ 回答済み
+                    </span>
+                  ) : form.due_date ? (
                     <span className={isOverdue ? 'text-red-600' : isSoon ? 'text-orange-600' : 'text-gray-500'}>
                       ⏰ 期限: {new Date(form.due_date).toLocaleDateString()} {isOverdue && '(期限切れ)'}
                     </span>

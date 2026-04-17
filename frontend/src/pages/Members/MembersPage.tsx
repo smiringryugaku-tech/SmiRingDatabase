@@ -1,9 +1,45 @@
 import React, { useState, useEffect } from 'react';
 
+// ==========================================
+// 💀 新しい縦型カード用スケルトン
+// ==========================================
+function MembersSkeleton() {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6 pb-12 animate-pulse">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col aspect-[3/4]">
+          {/* 上部: 写真 (2/3) */}
+          <div className="h-[65%] w-full bg-gray-200" />
+          {/* 下部: 情報 (1/3) */}
+          <div className="h-[35%] p-4 flex flex-col justify-center space-y-3">
+            <div className="h-5 bg-gray-200 rounded w-3/4" />
+            <div className="space-y-2">
+              <div className="h-3 bg-gray-100 rounded w-full" />
+              <div className="h-3 bg-gray-100 rounded w-2/3" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ==========================================
+// 📱 メインページコンポーネント
+// ==========================================
 export default function MembersPage() {
-  const [searchQuery, setSearchQuery] = useState('');
   const [members, setMembers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // スマホ用サイドバー開閉
+
+  // --- フィルター用State ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedSchools, setSelectedSchools] = useState<string[]>([]);
+  const [selectedMajors, setSelectedMajors] = useState<string[]>([]);
+
+  // --- フィルターの選択肢（動的に生成） ---
+  const [availableSchools, setAvailableSchools] = useState<string[]>([]);
+  const [availableMajors, setAvailableMajors] = useState<string[]>([]);
 
   useEffect(() => {
     const fetchMembers = async () => {
@@ -11,6 +47,13 @@ export default function MembersPage() {
         const response = await fetch('http://localhost:3000/api/basic_profile_info');
         const data = await response.json();
         setMembers(data);
+
+        // 🌟 取得したデータから、大学と専攻の重複のないリストを作る
+        const schools = Array.from(new Set(data.map((m: any) => m.current_school).filter(Boolean))) as string[];
+        const majors = Array.from(new Set(data.map((m: any) => m.majors).filter(Boolean))) as string[];
+        setAvailableSchools(schools);
+        setAvailableMajors(majors);
+
       } catch (error) {
         console.error('メンバー取得エラー:', error);
       } finally {
@@ -21,96 +64,213 @@ export default function MembersPage() {
     fetchMembers();
   }, []);
 
+  // --- 🌟 フィルタリング処理 ---
   const filteredMembers = members.filter(member => {
+    // 1. 検索バーの判定
     const searchTarget = `${member.name_english || ''} ${member.name_kanji || ''}`.toLowerCase();
-    return searchTarget.includes(searchQuery.toLowerCase());
+    const matchesSearch = searchTarget.includes(searchQuery.toLowerCase());
+
+    // 2. 大学の判定（何も選ばれていなければ全てOK）
+    const matchesSchool = selectedSchools.length === 0 || selectedSchools.includes(member.current_school);
+
+    // 3. 専攻の判定
+    const matchesMajor = selectedMajors.length === 0 || selectedMajors.includes(member.majors);
+
+    return matchesSearch && matchesSchool && matchesMajor;
   });
 
-  return (
-    // 全体の背景を少しグレーにしてカードを目立たせる (Colors.grey[50] 相当)
-    <div className="min-h-full bg-gray-50 px-8 md:px-16 lg:px-24 py-16 flex flex-col overflow-y-auto">
-      
-      {/* --- 1. ヘッダー部分（タイトル ＆ 検索バー） --- */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6">
-        <h1 className="text-3xl font-bold text-gray-900 m-0">
-          Our Members
-        </h1>
+  const toggleFilter = (value: string, currentList: string[], setList: React.Dispatch<React.SetStateAction<string[]>>) => {
+    if (currentList.includes(value)) {
+      setList(currentList.filter(item => item !== value));
+    } else {
+      setList([...currentList, value]);
+    }
+  };
 
-        {/* 検索バー */}
-        <div className="w-full max-w-[500px] relative">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            {/* 虫眼鏡アイコン */}
-            <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+  return (
+    <div className="flex h-full w-full overflow-hidden bg-gray-50">
+      
+      {/* ==========================================
+          左側：サイドバー (フィルター)
+      ========================================== */}
+      <div className={`
+        fixed inset-y-0 left-0 z-40 w-72 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out flex flex-col
+        md:relative md:translate-x-0
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-800">Filters</h2>
+          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-gray-400 hover:text-gray-600">
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-8">
+          
+          {/* 名前検索 */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-bold text-gray-700">名前検索</h3>
+            <div className="relative">
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all"
+                placeholder="Name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
           </div>
-          <input
-            type="text"
-            className="w-full pl-10 pr-4 py-3 border-none rounded-full bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            placeholder="Search members by name, university, major..."
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              // TODO: ここで検索ロジックを実装する
-            }}
-          />
+
+          {/* 大学フィルター */}
+          {availableSchools.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-gray-700">大学 (University)</h3>
+              <div className="space-y-2">
+                {availableSchools.map(school => (
+                  <label key={school} className="flex items-center gap-3 cursor-pointer group">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                      checked={selectedSchools.includes(school)}
+                      onChange={() => toggleFilter(school, selectedSchools, setSelectedSchools)}
+                    />
+                    <span className="text-sm text-gray-600 group-hover:text-gray-900 truncate">{school}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 専攻フィルター */}
+          {availableMajors.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-gray-700">専攻 (Major)</h3>
+              <div className="space-y-2">
+                {availableMajors.map(major => (
+                  <label key={major} className="flex items-center gap-3 cursor-pointer group">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                      checked={selectedMajors.includes(major)}
+                      onChange={() => toggleFilter(major, selectedMajors, setSelectedMajors)}
+                    />
+                    <span className="text-sm text-gray-600 group-hover:text-gray-900 truncate">{major}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* --- 2. メンバー一覧（GridView） --- */}
-      {/* TailwindのGridマジック: 
-        カードの最小幅を約340pxとし、画面幅が許す限り列を増やす（maxCrossAxisExtent相当）
-      */}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-8 pb-12">
-        {filteredMembers.map((member) => (
-          <MemberCard key={member.id} member={member} />
-        ))}
+      {/* スマホ用サイドバー背景オーバーレイ */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/20 z-30 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* ==========================================
+          右側：メイングリッド
+      ========================================== */}
+      <div className="flex-1 p-6 md:p-8 h-full overflow-y-auto">
+        
+        {/* ヘッダーエリア */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Our Members</h1>
+            <p className="text-sm text-gray-500 mt-1">{filteredMembers.length} members found</p>
+          </div>
+          
+          {/* スマホ表示の時にだけ出る「フィルターを開く」ボタン */}
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
+            className="md:hidden p-2 text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 rounded-lg flex items-center gap-2"
+          >
+            <FilterIcon />
+            <span className="text-sm font-bold">Filter</span>
+          </button>
+        </div>
+
+        {/* メンバーグリッド */}
+        {isLoading ? (
+          <MembersSkeleton />
+        ) : filteredMembers.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+            <SearchIcon className="w-12 h-12 mb-4 text-gray-300" />
+            <p>条件に一致するメンバーが見つかりませんでした。</p>
+            <button 
+              onClick={() => { setSearchQuery(''); setSelectedSchools([]); setSelectedMajors([]); }}
+              className="mt-4 text-violet-600 font-bold hover:underline"
+            >
+              フィルターをクリアする
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 md:gap-6 pb-12">
+            {filteredMembers.map((member) => (
+              <VerticalMemberCard key={member.id} member={member} />
+            ))}
+          </div>
+        )}
+
       </div>
     </div>
   );
 }
 
-// --- 個別のプロフィールカードコンポーネント ---
-function MemberCard({ member }: { member: any }) {
-  const displayName = member.name_english || 'No Name';
+// ==========================================
+// 💳 縦型プロフィールカードコンポーネント (2:1比率)
+// ==========================================
+function VerticalMemberCard({ member }: { member: any }) {
+  const nameEnglish = member.name_english || 'No Name';
+  const nameKanji = member.name_kanji || '';
   const avatarUrl = member.avatar_link || '/assets/images/profile_photo_empty.png';
 
   return (
     <div 
-      className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-200 cursor-pointer overflow-hidden border border-gray-100 p-4"
-      onClick={() => alert(`TODO: ${displayName} さんの詳細プロフィール画面へ遷移`)}
+      className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md hover:border-violet-200 transition-all duration-300 cursor-pointer flex flex-col aspect-[3/4] group"
+      onClick={() => alert(`TODO: ${nameEnglish} さんの詳細プロフィール画面へ遷移`)}
     >
-      <div className="flex h-full items-center">
-        <div className="w-24 h-24 flex-shrink-0">
-          <img 
-            src={avatarUrl} 
-            alt={displayName} 
-            className="w-full h-full object-cover rounded-full border-2 border-gray-200"
-          />
-        </div>
+      {/* 上部: 写真エリア (約65%) */}
+      <div className="h-[65%] w-full relative bg-gray-100 overflow-hidden">
+        <img 
+          src={avatarUrl} 
+          alt={nameEnglish} 
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+        />
+        {/* （オプション）左上に国旗やバッジを置くのもカッコいいです */}
+      </div>
 
-        <div className="ml-4 flex-1 min-w-0 flex flex-col justify-center">
-          <h3 className="text-lg font-bold text-gray-900 truncate mb-2">
-            {displayName}
-          </h3>
-          
-          <div className="space-y-1">
-            {/* DBのカラム名に合わせてプロパティを変更 */}
-            <IconText icon={<LocationIcon />} text={member.study_abroad_country || '未設定'} />
-            <IconText icon={<SchoolIcon />} text={member.current_school || '未設定'} />
-            <IconText icon={<WorkIcon />} text={member.majors || '未設定'} />
-          </div>
+      {/* 下部: 情報エリア (約35%) */}
+      <div className="h-[35%] p-3 md:p-4 flex flex-col justify-center bg-white">
+        <h3 className="font-bold text-gray-900 text-sm md:text-base leading-tight truncate">
+          {nameEnglish}
+        </h3>
+        {nameKanji && (
+          <p className="text-[10px] md:text-xs text-gray-500 mb-2 truncate">{nameKanji}</p>
+        )}
+        
+        <div className="space-y-1 mt-auto">
+          {member.current_school && (
+            <IconText icon={<SchoolIcon />} text={member.current_school} />
+          )}
+          {member.majors && (
+            <IconText icon={<WorkIcon />} text={member.majors} />
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// --- ヘルパー: アイコンとテキストを並べるコンポーネント ---
+// --- ヘルパー: アイコンとテキストを並べる ---
 function IconText({ icon, text }: { icon: React.ReactNode, text: string }) {
   return (
-    <div className="flex items-center text-xs text-gray-500">
-      <div className="w-4 h-4 mr-1.5 flex items-center justify-center">
+    <div className="flex items-center text-[10px] md:text-xs text-gray-500">
+      <div className="w-3.5 h-3.5 mr-1.5 flex items-center justify-center text-gray-400">
         {icon}
       </div>
       <span className="truncate">{text}</span>
@@ -118,11 +278,22 @@ function IconText({ icon, text }: { icon: React.ReactNode, text: string }) {
   );
 }
 
-// --- SVGアイコン群 (Material Icons風) ---
-const LocationIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.243-4.243a8 8 0 1111.314 0z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+// --- SVGアイコン群 ---
+const SearchIcon = ({ className }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+  </svg>
+);
+
+const FilterIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
   </svg>
 );
 

@@ -2,7 +2,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Bold, Italic, List, ListOrdered, Code, ChevronDown } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type Props = {
   value?: string;
@@ -10,6 +10,12 @@ type Props = {
   placeholder?: string;
   readOnly?: boolean; 
 };
+
+export const richTextStyles = 
+  'text-sm text-gray-600 prose prose-sm max-w-none ' + 
+  'prose-p:my-1 prose-p:leading-normal prose-headings:my-2 ' + 
+  'prose-h1:text-lg prose-h1:font-bold prose-h2:text-base prose-h2:font-bold prose-h3:text-sm prose-h3:font-bold ' +
+  'prose-code:before:content-none prose-code:after:content-none prose-code:bg-blue-100 prose-code:text-blue-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:font-mono prose-code:font-bold';
 
 const headingOptions = [
   { label: 'Normal', value: 'normal' },
@@ -32,11 +38,7 @@ export default function RichTextEditor({ value = '', onChange, placeholder = '�
     editable: !readOnly,
     editorProps: {
       attributes: {
-        class: 
-          'outline-none text-sm text-gray-600 min-h-[28px] prose prose-sm max-w-none ' + 
-          'prose-p:my-1 prose-p:leading-normal prose-headings:my-2 ' + 
-          'prose-h1:text-lg prose-h1:font-bold prose-h2:text-base prose-h2:font-bold prose-h3:text-sm prose-h3:font-bold ' +
-          'prose-code:before:content-none prose-code:after:content-none prose-code:bg-blue-100 prose-code:text-blue-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:font-mono prose-code:font-bold',
+        class: `outline-none min-h-[28px] ${richTextStyles}`,
       },
     },
     onUpdate: ({ editor }) => onChange?.(editor.getHTML()),
@@ -44,6 +46,16 @@ export default function RichTextEditor({ value = '', onChange, placeholder = '�
     onBlur: () => setIsFocused(false),
     onSelectionUpdate: () => setForceUpdate(prev => prev + 1),
   });
+
+  useEffect(() => {
+    if (editor && value !== editor.getHTML()) {
+      // エディタにフォーカスがないときだけ反映させる
+      //（編集中にステート更新が走ってカーソルが飛ぶのを防ぐため）
+      if (!editor.isFocused) {
+        editor.commands.setContent(value);
+      }
+    }
+  }, [value, editor]);
 
   if (!editor) return null;
 
