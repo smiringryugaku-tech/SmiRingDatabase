@@ -241,12 +241,17 @@ export default function SendSettings({
           )}
         </div>
         
-        <label className="flex items-center gap-3 cursor-pointer p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors group">
-          <input type="checkbox" checked={isAnonymous} onChange={(e) => setIsAnonymous(e.target.checked)} className="w-5 h-5 accent-blue-600" />
+        <label className="flex items-start gap-3 cursor-pointer p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors group">
+          <input type="checkbox" checked={isAnonymous} onChange={(e) => setIsAnonymous(e.target.checked)} className="w-5 h-5 accent-blue-600 mt-0.5 flex-shrink-0" />
           
-          <div>
-            <span className="block text-sm font-bold text-gray-700 group-hover:text-blue-900 transition-colors">匿名回答を許可する</span>
-            <span className="block text-xs text-gray-500 mt-0.5">誰が回答したか分からなくなります</span>
+          <div className="flex-1">
+            <span className="block text-sm font-bold text-gray-700 group-hover:text-blue-900 transition-colors">匿名回答に設定する</span>
+            <span className="block text-xs text-gray-500 mt-0.5">このフォームは匿名フォームとして設定されます。全ての回答者が匿名になります。</span>
+            {isAnonymous && (
+              <span className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-gray-800 text-white text-[10px] font-bold rounded-full">
+                🕶 匿名フォーム
+              </span>
+            )}
           </div>
         </label>
       </div>

@@ -32,17 +32,14 @@ app.get('/', (req: Request, res: Response) => {
   res.send('SmiRing Backend API is running!');
 });
 
-// メンバーの基本プロフィール情報
+// 🌟 【既存】メンバーの基本プロフィール情報（一覧用）
 app.get('/api/basic_profile_info', async (req: Request, res: Response) => {
   try {
-    // Supabaseから basic_profile_info のデータを取得
     const { data, error } = await supabase
       .from('basic_profile_info')
       .select('*');
 
     if (error) throw error;
-
-    // 取得したデータをReactに返す
     res.json(data);
   } catch (error: any) {
     console.error('メンバー基本プロフィール取得エラー:', error);
@@ -50,30 +47,57 @@ app.get('/api/basic_profile_info', async (req: Request, res: Response) => {
   }
 });
 
+// 自分のプロフィール情報を取得
 app.get('/api/basic_profile_info/me', async (req: Request, res: Response) => {
   try {
-    // 1. フロントエンドから送られてきた「証明書（トークン）」を取得
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
       return res.status(401).json({ error: '認証トークンがありません' });
     }
 
-    // 2. Supabaseにトークンを渡し、誰からのリクエストかを特定する
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) throw authError;
 
-    // 3. そのユーザーIDに一致するプロフィール情報だけをDBから取得
     const { data, error } = await supabase
       .from('basic_profile_info')
       .select('*')
       .eq('id', user.id)
-      .single(); // single() をつけると配列ではなく1つのオブジェクトとして取得できます
+      .single(); 
 
     if (error) throw error;
     res.json(data);
     
   } catch (error: any) {
     console.error('プロフィール取得エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 指定したID（他人）のプロフィール情報を取得
+app.get('/api/basic_profile_info/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // URLの :id の部分を使ってDBを検索します
+    const { data, error } = await supabase
+      .from('basic_profile_info')
+      .select('*')
+      .eq('id', id)
+      .single(); // 1人分だけ取得
+
+    if (error) {
+      // Supabaseでデータが見つからなかった時のエラーコード
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: 'プロフィールが見つかりません' });
+      }
+      throw error;
+    }
+
+    // 他人のプロフィールなので、トークンの検証などはせずそのまま返します
+    res.json(data);
+    
+  } catch (error: any) {
+    console.error('指定プロフィール取得エラー:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -85,7 +109,6 @@ app.get('/api/forms/:id', async (req: Request, res: Response) => {
   const { id: formId } = req.params;
 
   try {
-    // 1. フォーム本体を取得
     const { data: form, error: formError } = await supabase
       .from('forms')
       .select('*')
@@ -94,7 +117,6 @@ app.get('/api/forms/:id', async (req: Request, res: Response) => {
 
     if (formError || !form) return res.status(404).json({ error: 'フォームが見つかりません' });
 
-    // 2. 紐付いている質問を順番通りに取得
     const { data: qLinks, error: qError } = await supabase
       .from('form_questions')
       .select('*, questions(*)')
@@ -103,7 +125,6 @@ app.get('/api/forms/:id', async (req: Request, res: Response) => {
 
     if (qError) throw qError;
 
-    // 3. フロントエンドが使いやすい形に整形して返す
     const questions = qLinks?.map(link => {
       const q = link.questions;
       return {
@@ -129,70 +150,114 @@ app.get('/api/forms/:id', async (req: Request, res: Response) => {
   }
 });
 
+
 // ==========================================
-// 📝 フォーム＆質問の一括保存 API (Step 1追加)
+// 📝 フォーム＆質問の一括保存 API (エラー回避版)
 // ==========================================
 app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
   const { id: formId } = req.params;
-  const { title, description, questions, created_by } = req.body;
+  const { title, description, questions = [], created_by } = req.body;
 
   try {
+    // 0. フォームの現在のステータスを確認（なければ draft）
     const { data: existingForm } = await supabase
       .from('forms')
       .select('status')
       .eq('id', formId)
       .single();
-
     const currentStatus = existingForm?.status || 'draft';
 
-    // 1. フォーム本体をUpsert
-    const { error: formError } = await supabase
-      .from('forms')
-      .upsert({
-        id: formId,
-        title,
-        description,
-        status: currentStatus,
-        created_by,
-        updated_at: new Date().toISOString(),
-      });
+    // 1. フォーム本体を更新 (Upsert)
+    const { error: formError } = await supabase.from('forms').upsert({
+      id: formId,
+      title,
+      description,
+      status: currentStatus,
+      created_by,
+      updated_at: new Date().toISOString(),
+    });
     if (formError) throw formError;
 
-    // 2. 質問本体をUpsert
+    // 2. 質問の定義自体を更新 (Upsert)
+    // 質問マスタ自体は question_id が主キーなのでそのまま upsert 可能
     for (const q of questions) {
-      const { error: qError } = await supabase
-        .from('questions')
-        .upsert({
-          id: q.id,
-          title: q.title,
-          description: q.description,
-          question_type: q.type,
-          options: {
-            choices: q.options,
-            scale: q.scale,
-            gridRows: q.gridRows,
-            gridCols: q.gridCols,
-            gridInputType: q.gridInputType,
-            validation: q.shortTextValidation
-          }
-        });
+      const { error: qError } = await supabase.from('questions').upsert({
+        id: q.id,
+        title: q.title,
+        description: q.description,
+        question_type: q.type,
+        options: {
+          choices: q.options,
+          scale: q.scale,
+          gridRows: q.gridRows,
+          gridCols: q.gridCols,
+          gridInputType: q.gridInputType,
+          validation: q.shortTextValidation
+        }
+      });
       if (qError) throw qError;
     }
 
-    // 3. 紐付け (form_questions) を更新
-    // ※安全のため、一旦このフォームの紐付けを全削除してから現在の順番で入れ直します
-    await supabase.from('form_questions').delete().eq('form_id', formId);
+    // 3. 紐付け (form_questions) の差分更新処理
+    
+    // ① 現在DBに保存されている、このフォームの紐付けデータを主キー(id)込みで取得
+    const { data: existingLinks, error: fetchError } = await supabase
+      .from('form_questions')
+      .select('id, question_id')
+      .eq('form_id', formId);
+    if (fetchError) throw fetchError;
+      
+    const existingQuestionIds = existingLinks?.map(link => link.question_id) || [];
+    const newQuestionIds = questions.map((q: any) => q.id);
 
-    const formQuestionsData = questions.map((q: any, index: number) => ({
-      form_id: formId,
-      question_id: q.id,
-      order_index: index,
-      is_required: q.isRequired || false
-    }));
+    // ② 削除: 画面から消された質問の紐付けを削除
+    const idsToDelete = existingQuestionIds.filter(id => !newQuestionIds.includes(id));
+    if (idsToDelete.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('form_questions')
+        .delete()
+        .eq('form_id', formId)
+        .in('question_id', idsToDelete);
+      if (deleteError) throw deleteError;
+    }
 
-    if (formQuestionsData.length > 0) {
-      const { error: linkError } = await supabase.from('form_questions').insert(formQuestionsData);
-      if (linkError) throw linkError;
+    // ③ 追加(INSERT) と 更新(UPDATE) の仕分け
+    const toInsert: any[] = [];
+    const toUpdate: any[] = [];
+
+    questions.forEach((q: any, index: number) => {
+      const existingLink = existingLinks?.find(link => link.question_id === q.id);
+      
+      if (existingLink) {
+        // すでにDBに存在する場合 -> DB側の「行ID(id)」を含めて更新リストへ
+        toUpdate.push({
+          id: existingLink.id, // これがあることで、特定の行を狙い撃ちで更新できます
+          form_id: formId,
+          question_id: q.id,
+          order_index: index,
+          is_required: q.isRequired || false
+        });
+      } else {
+        // 新しい質問の場合 -> 新規追加リストへ
+        toInsert.push({
+          form_id: formId,
+          question_id: q.id,
+          order_index: index,
+          is_required: q.isRequired || false
+        });
+      }
+    });
+
+    // ④ まとめて実行
+    if (toInsert.length > 0) {
+      const { error: insertError } = await supabase.from('form_questions').insert(toInsert);
+      if (insertError) throw insertError;
+    }
+
+    if (toUpdate.length > 0) {
+      // id を含んでいるため、conflict を気にせず確実に更新されます
+      const { error: updateError } = await supabase.from('form_questions').upsert(toUpdate);
+      if (updateError) throw updateError;
     }
 
     res.json({ message: "保存成功" });
@@ -210,12 +275,11 @@ app.post('/api/forms/:id/publish', async (req: Request, res: Response) => {
   const { assigned_user_ids, due_date, allow_anonymous, timezone, status } = req.body;
 
   try {
-    // publish_settings JSONB の構造を作成
     const publish_settings = {
-      visibility: "restricted",   // 今回はメンバー指定なので restricted
+      visibility: "restricted",
       assigned_user_ids: assigned_user_ids,
-      external_emails: [],        // 将来用プレースホルダー
-      share_url: `/form-answer/${formId}`, // 共有用URLのプレースホルダー
+      external_emails: [],
+      share_url: `/form-answer/${formId}`,
       timezone: timezone
     };
 
@@ -249,14 +313,12 @@ app.post('/api/forms/:id/responses/save', async (req: Request, res: Response) =>
   if (!user_id) return res.status(401).json({ error: 'ログインが必要です' });
 
   try {
-    // 🌟 form_responses テーブルに保存 (upsert)
-    // ON CONFLICT (form_id, user_id) によって、既存なら更新、なければ挿入される
     const { error } = await supabase
       .from('form_responses')
       .upsert({
         form_id: formId,
         user_id: user_id,
-        content: content, // { qid: value } の形のJSON
+        content: content,
         status: 'draft',
         updated_at: new Date().toISOString()
       }, { onConflict: 'form_id,user_id' });
@@ -276,7 +338,6 @@ app.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
   const { answers, turnstileToken, user_id } = req.body;
 
   try {
-    // 1. Turnstile 検証 (既存のまま)
     const verifyResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -285,8 +346,6 @@ app.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
     const verifyData = await verifyResponse.json();
     if (!verifyData.success) return res.status(400).json({ error: 'Bot検知失敗' });
 
-    // 🌟 2. form_responses テーブルを「提出済み」に更新
-    // これにより「下書き」だったレコードが「提出済み」に昇格する
     const { error: responseError } = await supabase
       .from('form_responses')
       .upsert({
@@ -299,7 +358,6 @@ app.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
 
     if (responseError) throw responseError;
 
-    // 3. 個別の回答データを answers テーブルに保存 (集計用・既存のまま)
     const answerRecords = Object.entries(answers).map(([qId, value]) => ({
       form_id: formId,
       question_id: qId,
@@ -324,18 +382,14 @@ app.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
 // ==========================================
 app.get('/api/my-forms', async (req: Request, res: Response) => {
   try {
-    // 1. フロントエンドから送られてきたトークンを取得
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
       return res.status(401).json({ error: '認証トークンがありません' });
     }
 
-    // 2. トークンからユーザーを特定する
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) throw authError;
 
-    // 3. formsテーブルから、自分が作成したフォームだけを取得する
-    // deleted_at が null のもの（削除されていないもの）だけを、更新日順で取得
     const { data, error } = await supabase
       .from('forms')
       .select('id, title, status, updated_at')
@@ -352,6 +406,49 @@ app.get('/api/my-forms', async (req: Request, res: Response) => {
   }
 });
 
+
+// ==========================================
+// 📄 指定ユーザーのフォーム回答一覧を取得する API
+// ==========================================
+app.get('/api/users/:id/form-responses', async (req: Request, res: Response) => {
+  const { id: userId } = req.params;
+
+  try {
+    // ユーザーの回答（提出済み）と、紐づくフォームのタイトルを取得
+    // ※Supabaseの forms テーブルとリレーションが張られている前提です
+    const { data, error } = await supabase
+      .from('form_responses')
+      .select(`
+        id,
+        status,
+        submitted_at,
+        forms (
+          id,
+          title
+        )
+      `)
+      .eq('user_id', userId)
+      .eq('status', 'submitted') // 提出済みのものだけを表示
+      .order('submitted_at', { ascending: false });
+
+    if (error) throw error;
+
+    // フロントエンドで表示しやすいようにデータを整形
+    const formattedData = data.map((item: any) => ({
+      id: item.id,
+      form_id: item.forms?.id,
+      form_title: item.forms?.title || 'Unknown Form',
+      submitted_at: item.submitted_at,
+      status: item.status
+    }));
+
+    res.json(formattedData);
+  } catch (error: any) {
+    console.error("User Form Responses Fetch Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==========================================
 // 📩 自分にアサインされたフォームを取得する API
 // ==========================================
@@ -363,8 +460,6 @@ app.get('/api/assigned-forms', async (req: Request, res: Response) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) throw authError;
 
-    // JSONBの配列内に自分のユーザーIDが含まれているもの、かつ「公開中」のものを取得
-    // Supabaseでは .contains() を使ってJSONB配列内の検索が可能です
     const { data, error } = await supabase
       .from('forms')
       .select('id, title, due_date, status, publish_settings')
@@ -373,13 +468,134 @@ app.get('/api/assigned-forms', async (req: Request, res: Response) => {
       .contains('publish_settings', { assigned_user_ids: [user.id] });
 
     if (error) throw error;
-
-    // 締め切り日（due_date）が近い順にフロントエンドで並べ替えるため、
-    // ここではそのままデータを返します（日付のソートはJS側で行うのが安全です）
     res.json(data);
 
   } catch (error: any) {
     console.error('アサインフォーム取得エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// 📊 フォームへの回答者一覧を取得する API
+// ==========================================
+app.get('/api/forms/:id/responses', async (req: Request, res: Response) => {
+  const { id: formId } = req.params;
+
+  try {
+    // 1. 提出済みの回答一覧を取得
+    const { data: responses, error: responseError } = await supabase
+      .from('form_responses')
+      .select('id, user_id, status, submitted_at, updated_at, content')
+      .eq('form_id', formId)
+      .eq('status', 'submitted')
+      .order('submitted_at', { ascending: true }); // ascending = 最初に提出した人が回答者1
+
+    if (responseError) throw responseError;
+    if (!responses || responses.length === 0) {
+      return res.json([]);
+    }
+
+    // 2. 回答者のプロフィール情報を取得（user_idのリスト）
+    const userIds = responses.map(r => r.user_id).filter(Boolean);
+    const { data: profiles, error: profileError } = await supabase
+      .from('basic_profile_info')
+      .select('id, name_english, name_kanji, avatar_link')
+      .in('id', userIds);
+
+    if (profileError) throw profileError;
+
+    // 3. プロフィール情報をマージして返す
+    const profileMap = new Map((profiles || []).map(p => [p.id, p]));
+    const result = responses.map(r => {
+      const profile = profileMap.get(r.user_id);
+      return {
+        response_id: r.id,
+        user_id: r.user_id,
+        submitted_at: r.submitted_at,
+        updated_at: r.updated_at,
+        name_english: profile?.name_english || '不明なユーザー',
+        name_kanji: profile?.name_kanji || '',
+        avatar_link: profile?.avatar_link || null,
+        content: r.content || {}, // 回答内容 { [questionId]: value }
+      };
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('回答一覧取得エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// 📋 特定ユーザーの回答詳細を取得する API
+// ==========================================
+app.get('/api/forms/:id/responses/:userId', async (req: Request, res: Response) => {
+  const { id: formId, userId } = req.params;
+
+  try {
+    // 1. 回答データを取得
+    const { data: response, error: responseError } = await supabase
+      .from('form_responses')
+      .select('id, content, status, submitted_at')
+      .eq('form_id', formId)
+      .eq('user_id', userId)
+      .eq('status', 'submitted')
+      .single();
+
+    if (responseError || !response) {
+      return res.status(404).json({ error: '回答が見つかりません' });
+    }
+
+    // 2. フォームの質問一覧を順番通りに取得
+    const { data: qLinks, error: qError } = await supabase
+      .from('form_questions')
+      .select('order_index, is_required, questions(id, title, description, question_type, options)')
+      .eq('form_id', formId)
+      .order('order_index', { ascending: true });
+
+    if (qError) throw qError;
+
+    // 3. 質問リストと回答マップを合わせて整形
+    const questions = (qLinks || []).map(link => {
+      const q = link.questions as any;
+      return {
+        id: q.id,
+        title: q.title || '',
+        description: q.description || '',
+        type: q.question_type || 'radio',
+        is_required: link.is_required,
+        options: q.options?.choices || [],
+        scale: q.options?.scale || null,
+        gridRows: q.options?.gridRows || [],
+        gridCols: q.options?.gridCols || [],
+        gridInputType: q.options?.gridInputType || 'radio',
+        // 回答データ: content は { [questionId]: value } の形式
+        answer: response.content?.[q.id] ?? null,
+      };
+    });
+
+    // 4. 回答者プロフィールを取得
+    const { data: profile } = await supabase
+      .from('basic_profile_info')
+      .select('id, name_english, name_kanji, avatar_link')
+      .eq('id', userId)
+      .single();
+
+    res.json({
+      response_id: response.id,
+      submitted_at: response.submitted_at,
+      user: {
+        id: userId,
+        name_english: profile?.name_english || '不明なユーザー',
+        name_kanji: profile?.name_kanji || '',
+        avatar_link: profile?.avatar_link || null,
+      },
+      questions,
+    });
+  } catch (error: any) {
+    console.error('回答詳細取得エラー:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -394,22 +610,15 @@ app.post('/api/test-ai', async (req: Request, res: Response) => {
 
     console.log(`「${text}」を処理中...`);
 
-    // 1. ローカルAIでベクトル化 (384次元)
     const localVector = await getLocalEmbedding(text);
-    
-    // 2. Geminiでベクトル化 (256次元)
     const geminiVector = await getGeminiEmbedding(text);
-    
-    // 3. LLMにおしゃべりさせる
     const chatReply = await generateChatResponse(`「${text}」について10文字以内で褒めてください。`);
 
-    // 結果をまとめて返す
     res.json({
       message: "AIパイプライン成功！",
-      localVectorLength: localVector.length,   // 期待値: 384
-      geminiVectorLength: geminiVector.length, // 期待値: 256
+      localVectorLength: localVector.length,
+      geminiVectorLength: geminiVector.length,
       chatReply: chatReply,
-      // vectorPreview: localVector.slice(0, 5) // ベクトルの中身を少しだけ見たい場合はコメント解除
     });
 
   } catch (error: any) {
@@ -423,14 +632,12 @@ app.post('/api/test-ai', async (req: Request, res: Response) => {
 // ==========================================
 app.post('/api/answers', async (req: Request, res: Response) => {
   try {
-    // 1. フロントエンドから送られてくるデータを受け取る
     const { user_id, question_id, form_id, answer_data } = req.body;
 
     if (!user_id || !question_id || !answer_data) {
       return res.status(400).json({ error: '必須データが足りません' });
     }
 
-    // 2. Supabase の `answers` テーブルに回答を保存（これは一瞬で終わる）
     const { data: answer, error: answerError } = await supabase
       .from('answers')
       .insert([{ user_id, question_id, form_id, answer_data }])
@@ -439,33 +646,23 @@ app.post('/api/answers', async (req: Request, res: Response) => {
 
     if (answerError) throw answerError;
 
-    // 🌟 3. ここがプロの技！「レスポンスを先に返す」
-    // AIの処理（数秒かかる）を待たずに、フロントエンドには「保存完了！」と返す
     res.json({ message: "回答を保存しました！裏側でAIが解析を開始します。", answer });
 
-    // ==========================================
-    // 🤖 ここから下は「バックグラウンド（裏側）」で動く処理
-    // ==========================================
     (async () => {
       try {
         console.log(`[AI Worker] 回答(ID: ${answer.id})のベクトル化を開始...`);
 
-        // A. 質問のタイトルやカテゴリーをDBから取得（ベクトル化する文章をリッチにするため）
         const { data: question } = await supabase
           .from('questions')
           .select('title, primary_category, tags')
           .eq('id', question_id)
           .single();
 
-        // B. AIに読ませるための「検索用テキスト」を生成
-        // 例: "質問: 今年のクリスマスの過ごし方 / 回答: {"text": "ロンドンに行く！"}"
         const textToEmbed = `質問: ${question?.title || '不明'}\n回答: ${JSON.stringify(answer_data)}`;
 
-        // C. 2つのAIの脳でベクトル化！！
         const localVector = await getLocalEmbedding(textToEmbed);
         const geminiVector = await getGeminiEmbedding(textToEmbed);
 
-        // D. 検索用インデックステーブルに保存
         const { error: indexError } = await supabase
           .from('unified_search_index')
           .insert([{
@@ -485,10 +682,9 @@ app.post('/api/answers', async (req: Request, res: Response) => {
         console.log(`[AI Worker] ✅ 回答(ID: ${answer.id})のベクトル化とインデックス保存が完了！`);
 
       } catch (aiError) {
-        // ※裏側でエラーが起きても、ユーザーの画面はフリーズしません
         console.error(`[AI Worker Error] ベクトル化に失敗:`, aiError);
       }
-    })(); // 非同期関数をその場で実行する書き方（IIFE）
+    })(); 
 
   } catch (error: any) {
     console.error('回答保存エラー:', error);
@@ -508,14 +704,12 @@ app.post('/api/search/instant', async (req: Request, res: Response) => {
     console.log(`[Search] 「${query}」の即時検索を開始...`);
     const startTime = Date.now();
 
-    // 1. 検索ワードをローカルAIでベクトル化（Gemini APIは呼ばないから無料＆爆速！）
     const queryVector = await getLocalEmbedding(query);
 
-    // 2. SupabaseのRPC関数を呼び出して、似ているデータを取得
     const { data: results, error } = await supabase.rpc('search_local_vectors', {
       query_embedding: queryVector,
-      match_threshold: 0.3, // 0.3以上の類似度があるものを抽出（精度調整用）
-      match_count: 10       // 上位10件を取得
+      match_threshold: 0.3, 
+      match_count: 10       
     });
 
     if (error) throw error;
@@ -523,7 +717,6 @@ app.post('/api/search/instant', async (req: Request, res: Response) => {
     const executeTime = Date.now() - startTime;
     console.log(`[Search] ✅ 検索完了！(${executeTime}ms) ${results?.length || 0}件ヒット`);
 
-    // 3. 結果をフロントエンドに返す
     res.json({
       time_ms: executeTime,
       results: results
@@ -545,20 +738,16 @@ app.post('/api/search/chat', async (req: Request, res: Response) => {
 
     console.log(`[Chat] 「${query}」のフルRAG検索を開始...`);
 
-    // 1. ユーザーの質問を Gemini Embedding で 256次元ベクトル化
     const queryVector = await getGeminiEmbedding(query);
 
-    // 2. Supabaseから「意味の近い」データをトップ5件取得
     const { data: searchResults, error } = await supabase.rpc('search_gemini_vectors', {
       query_embedding: queryVector,
-      match_threshold: 0.2, // ちょっと甘めに設定して幅広く拾う
+      match_threshold: 0.2, 
       match_count: 5
     });
 
     if (error) throw error;
 
-    // 3. 取得したデータを、LLM（Gemini）が読めるように1つの長いテキストにまとめる
-    // ※これが「コンテキスト（文脈）」になります！
     let contextText = "【データベースの検索結果】\n";
     if (searchResults && searchResults.length > 0) {
       searchResults.forEach((item: any, index: number) => {
@@ -568,7 +757,6 @@ app.post('/api/search/chat', async (req: Request, res: Response) => {
       contextText += "関連する情報は見つかりませんでした。\n";
     }
 
-    // 4. LLMに渡す「究極のプロンプト（指示書）」を作成
     const finalPrompt = `
 あなたは留学生向けアプリ「SmiRing」の優秀なAIアシスタントです。
 以下の【データベースの検索結果】を参考にして、ユーザーの質問に親切に答えてください。
@@ -579,13 +767,11 @@ ${contextText}
 ユーザーの質問: ${query}
     `;
 
-    // 5. LLM（Gemini 2.0 Flash）に考えてもらう
     const aiAnswer = await generateChatResponse(finalPrompt);
 
-    // 6. 最終結果をフロントエンドに返す
     res.json({
       answer: aiAnswer,
-      sources: searchResults // フロントエンドで「参照元カード」を表示するために元データも返す
+      sources: searchResults 
     });
 
   } catch (error: any) {

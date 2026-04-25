@@ -71,6 +71,7 @@ const router = createBrowserRouter([
       { path: '/home', element: <HomePage /> },
       { path: '/profile', element: <ProfilePage /> },
       { path: '/members', element: <MembersPage /> },
+      { path: '/members/:id', element: <ProfilePage /> },
       { path: '/gallery', element: <GalleryPage /> },
       { path: '/form-list', element: <FormListPage /> },
       { path: '/form-editor/:id', element: <FormEditorPage /> },

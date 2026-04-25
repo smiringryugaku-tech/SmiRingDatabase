@@ -93,7 +93,7 @@ function HomeQuickActionButtons() {
         }
       />
       <QuickActionButton 
-        label="Gallery" 
+        label="Gallery (Coming Soon)" 
         onClick={() => navigate('/gallery')}
         icon={
           <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
