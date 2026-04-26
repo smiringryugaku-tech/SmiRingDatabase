@@ -20,10 +20,10 @@ export type QuestionData = {
   description: string;
   type: string;
   isRequired?: boolean;
-  options: { id: number; text: string }[];
+  options: { id: number; text: string; lucideIcon?: string }[];
   scale: { min: number; max: number; minLabel: string; maxLabel: string };
-  gridRows: { id: number; text: string }[];
-  gridCols: { id: number; text: string }[];
+  gridRows: { id: number; text: string; lucideIcon?: string }[];
+  gridCols: { id: number; text: string; lucideIcon?: string }[];
   gridInputType: 'radio' | 'checkbox';
   shortTextValidation: {
     enabled: boolean;
@@ -33,6 +33,16 @@ export type QuestionData = {
     value2: string;
     errorMsg: string;
   };
+  checkboxValidation: {
+    enabled: boolean;
+    min: number | '';
+    max: number | '';
+    errorMsg: string;
+  };
+  shortTextMultiple: {
+    enabled: boolean;
+    style: 'none' | 'bullet' | 'number' | 'arrow';
+  };
 };
 
 const createDefaultQuestion = (): QuestionData => ({
@@ -41,12 +51,14 @@ const createDefaultQuestion = (): QuestionData => ({
   description: '',
   type: 'radio',
   isRequired: false,
-  options: [{ id: 1, text: '' }, { id: 2, text: '' }],
+  options: [{ id: 1, text: '', lucideIcon: '' }, { id: 2, text: '', lucideIcon: '' }],
   scale: { min: 1, max: 5, minLabel: '', maxLabel: '' },
-  gridRows: [{ id: 1, text: '' }],
-  gridCols: [{ id: 1, text: '' }],
+  gridRows: [{ id: 1, text: '', lucideIcon: '' }],
+  gridCols: [{ id: 1, text: '', lucideIcon: '' }],
   gridInputType: 'radio',
-  shortTextValidation: { enabled: false, type: 'number', condition: 'between', value1: '', value2: '', errorMsg: '' }
+  shortTextValidation: { enabled: false, type: 'number', condition: 'between', value1: '', value2: '', errorMsg: '' },
+  checkboxValidation: { enabled: false, min: '', max: '', errorMsg: '' },
+  shortTextMultiple: { enabled: false, style: 'bullet' }
 });
 
 export default function FormEditorPage() {
@@ -181,7 +193,9 @@ export default function FormEditorPage() {
                 gridRows: q.options?.gridRows || [{ id: 1, text: '' }],
                 gridCols: q.options?.gridCols || [{ id: 1, text: '' }],
                 gridInputType: q.options?.gridInputType || 'radio',
-                shortTextValidation: q.options?.validation || { enabled: false, type: 'number', condition: 'between', value1: '', value2: '', errorMsg: '' }
+                shortTextValidation: q.options?.validation || { enabled: false, type: 'number', condition: 'between', value1: '', value2: '', errorMsg: '' },
+                checkboxValidation: q.options?.checkboxValidation || { enabled: false, min: '', max: '', errorMsg: '' },
+                shortTextMultiple: q.options?.shortTextMultiple || { enabled: false, style: 'bullet' }
               };
             });
             setQuestions(loadedQuestions);
@@ -412,7 +426,7 @@ export default function FormEditorPage() {
           <FileText className="w-5 h-5" />
           <span className="text-[8px] font-medium text-gray-400 leading-none mt-0.5">フォーム一覧</span>
         </button>
-        <span className="font-bold text-gray-800 max-w-[120px] md:max-w-xs truncate text-lg">
+        <span className="hidden md:block font-bold text-gray-800 max-w-[120px] md:max-w-xs truncate md:text-lg">
           {title || '無題のフォーム'}
         </span>
       </div>

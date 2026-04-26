@@ -73,6 +73,39 @@ app.get('/api/basic_profile_info/me', async (req: Request, res: Response) => {
   }
 });
 
+// 自分のプロフィール情報を更新
+app.patch('/api/basic_profile_info/me', async (req: Request, res: Response) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: '認証トークンがありません' });
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) throw authError;
+
+    // Body から更新したいフィールドのみ受け取る
+    const updates = req.body;
+    
+    // 更新日時をセット
+    updates.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('basic_profile_info')
+      .update(updates)
+      .eq('id', user.id)
+      .select()
+      .single(); 
+
+    if (error) throw error;
+    res.json(data);
+    
+  } catch (error: any) {
+    console.error('プロフィール更新エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 指定したID（他人）のプロフィール情報を取得
 app.get('/api/basic_profile_info/:id', async (req: Request, res: Response) => {
   try {
@@ -192,7 +225,9 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
           gridRows: q.gridRows,
           gridCols: q.gridCols,
           gridInputType: q.gridInputType,
-          validation: q.shortTextValidation
+          validation: q.shortTextValidation,
+          checkboxValidation: q.checkboxValidation,
+          shortTextMultiple: q.shortTextMultiple
         }
       });
       if (qError) throw qError;
