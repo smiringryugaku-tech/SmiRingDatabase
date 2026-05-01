@@ -84,6 +84,50 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
           </svg>
           <span className="text-sm">選択肢を追加</span>
         </div>
+
+        {type === 'checkbox' && (
+          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mt-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-bold text-gray-600">回答の検証（選択数の制限）</span>
+              <label className="flex items-center cursor-pointer">
+                <div className="relative">
+                  <input 
+                    type="checkbox" 
+                    className="sr-only" 
+                    checked={question.checkboxValidation?.enabled || false}
+                    onChange={(e) => onChange({ checkboxValidation: { ...(question.checkboxValidation || { min: '', max: '', errorMsg: '' }), enabled: e.target.checked }})}
+                  />
+                  <div className={`block w-10 h-6 rounded-full transition-colors ${question.checkboxValidation?.enabled ? 'bg-blue-500' : 'bg-gray-300'}`}></div>
+                  <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${question.checkboxValidation?.enabled ? 'transform translate-x-4' : ''}`}></div>
+                </div>
+              </label>
+            </div>
+            {question.checkboxValidation?.enabled && (
+              <div className="flex flex-wrap gap-3 items-center mt-4">
+                <span className="text-sm text-gray-600">最小</span>
+                <input 
+                  type="number" min="0" placeholder="なし" 
+                  value={question.checkboxValidation.min}
+                  onChange={e => onChange({ checkboxValidation: { ...question.checkboxValidation, min: e.target.value ? Number(e.target.value) : '' }})}
+                  className="p-2 border border-gray-300 rounded-md text-sm w-20 focus:outline-none focus:border-blue-500"
+                />
+                <span className="text-sm text-gray-600">最大</span>
+                <input 
+                  type="number" min="0" placeholder="なし" 
+                  value={question.checkboxValidation.max}
+                  onChange={e => onChange({ checkboxValidation: { ...question.checkboxValidation, max: e.target.value ? Number(e.target.value) : '' }})}
+                  className="p-2 border border-gray-300 rounded-md text-sm w-20 focus:outline-none focus:border-blue-500"
+                />
+                <input 
+                  type="text" placeholder="カスタムエラーテキスト" 
+                  value={question.checkboxValidation.errorMsg}
+                  onChange={e => onChange({ checkboxValidation: { ...question.checkboxValidation, errorMsg: e.target.value }})}
+                  className="p-2 border border-gray-300 rounded-md text-sm flex-1 min-w-[150px] focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -199,6 +243,39 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
           readOnly
           className="w-full md:w-1/2 border-b border-gray-300 border-dotted focus:outline-none py-2 text-sm text-gray-400 bg-transparent"
         />
+        
+        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mt-2 mb-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-gray-600">複数回答を許可</span>
+            <label className="flex items-center cursor-pointer">
+              <div className="relative">
+                <input 
+                  type="checkbox" 
+                  className="sr-only" 
+                  checked={question.shortTextMultiple?.enabled || false}
+                  onChange={(e) => onChange({ shortTextMultiple: { ...(question.shortTextMultiple || { style: 'bullet' }), enabled: e.target.checked }})}
+                />
+                <div className={`block w-10 h-6 rounded-full transition-colors ${question.shortTextMultiple?.enabled ? 'bg-blue-500' : 'bg-gray-300'}`}></div>
+                <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${question.shortTextMultiple?.enabled ? 'transform translate-x-4' : ''}`}></div>
+              </div>
+            </label>
+          </div>
+          {question.shortTextMultiple?.enabled && (
+            <div className="mt-4 flex items-center gap-3">
+              <span className="text-sm text-gray-600">リストスタイル</span>
+              <select 
+                value={question.shortTextMultiple.style}
+                onChange={e => onChange({ shortTextMultiple: { ...question.shortTextMultiple, style: e.target.value as any }})}
+                className="p-2 border border-gray-300 rounded-md text-sm bg-white focus:ring-blue-500"
+              >
+                <option value="none">なし</option>
+                <option value="bullet">箇条書き (・)</option>
+                <option value="number">数字 (1., 2.)</option>
+                <option value="arrow">矢印 (→)</option>
+              </select>
+            </div>
+          )}
+        </div>
         
         {/* バリデーション設定エリア */}
         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">

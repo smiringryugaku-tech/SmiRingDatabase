@@ -20,10 +20,10 @@ export type QuestionData = {
   description: string;
   type: string;
   isRequired?: boolean;
-  options: { id: number; text: string }[];
+  options: { id: number; text: string; lucideIcon?: string }[];
   scale: { min: number; max: number; minLabel: string; maxLabel: string };
-  gridRows: { id: number; text: string }[];
-  gridCols: { id: number; text: string }[];
+  gridRows: { id: number; text: string; lucideIcon?: string }[];
+  gridCols: { id: number; text: string; lucideIcon?: string }[];
   gridInputType: 'radio' | 'checkbox';
   shortTextValidation: {
     enabled: boolean;
@@ -33,6 +33,16 @@ export type QuestionData = {
     value2: string;
     errorMsg: string;
   };
+  checkboxValidation: {
+    enabled: boolean;
+    min: number | '';
+    max: number | '';
+    errorMsg: string;
+  };
+  shortTextMultiple: {
+    enabled: boolean;
+    style: 'none' | 'bullet' | 'number' | 'arrow';
+  };
 };
 
 const createDefaultQuestion = (): QuestionData => ({
@@ -41,12 +51,14 @@ const createDefaultQuestion = (): QuestionData => ({
   description: '',
   type: 'radio',
   isRequired: false,
-  options: [{ id: 1, text: '' }, { id: 2, text: '' }],
+  options: [{ id: 1, text: '', lucideIcon: '' }, { id: 2, text: '', lucideIcon: '' }],
   scale: { min: 1, max: 5, minLabel: '', maxLabel: '' },
-  gridRows: [{ id: 1, text: '' }],
-  gridCols: [{ id: 1, text: '' }],
+  gridRows: [{ id: 1, text: '', lucideIcon: '' }],
+  gridCols: [{ id: 1, text: '', lucideIcon: '' }],
   gridInputType: 'radio',
-  shortTextValidation: { enabled: false, type: 'number', condition: 'between', value1: '', value2: '', errorMsg: '' }
+  shortTextValidation: { enabled: false, type: 'number', condition: 'between', value1: '', value2: '', errorMsg: '' },
+  checkboxValidation: { enabled: false, min: '', max: '', errorMsg: '' },
+  shortTextMultiple: { enabled: false, style: 'bullet' }
 });
 
 export default function FormEditorPage() {
@@ -69,6 +81,8 @@ export default function FormEditorPage() {
   const [currentDueDate, setCurrentDueDate] = useState('');
   const [currentIsAnonymous, setCurrentIsAnonymous] = useState(false);
   const [currentAssignedUsers, setCurrentAssignedUsers] = useState<string[]>([]);
+  const [currentAllowMultiple, setCurrentAllowMultiple] = useState(false);
+  const [currentAllowEdit, setCurrentAllowEdit] = useState(true);
   const [initialDefaultQuestion] = useState(() => createDefaultQuestion());
   const [questions, setQuestions] = useState<QuestionData[]>([initialDefaultQuestion]);
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(initialDefaultQuestion.id);
@@ -160,6 +174,8 @@ export default function FormEditorPage() {
           setCurrentDueDate(form.due_date || '');
           setCurrentIsAnonymous(form.allow_anonymous || false);
           setCurrentAssignedUsers(form.publish_settings?.assigned_user_ids || []);
+          setCurrentAllowMultiple(form.allow_multiple_responses || false);
+          setCurrentAllowEdit(form.allow_edit_responses !== false); // default to true if undefined
 
           const { data: qLinks } = await supabase
             .from('form_questions')
@@ -176,12 +192,20 @@ export default function FormEditorPage() {
                 description: q.description || '',
                 type: q.question_type || 'radio',
                 isRequired: link.is_required || false,
-                options: q.options?.choices || [{ id: 1, text: '' }, { id: 2, text: '' }],
+                options: Array.isArray(q.options?.choices) 
+                  ? q.options.choices.map((c: any) => typeof c === 'string' ? { id: crypto.randomUUID(), text: c } : c)
+                  : [{ id: crypto.randomUUID(), text: '' }, { id: crypto.randomUUID(), text: '' }],
                 scale: q.options?.scale || { min: 1, max: 5, minLabel: '', maxLabel: '' },
-                gridRows: q.options?.gridRows || [{ id: 1, text: '' }],
-                gridCols: q.options?.gridCols || [{ id: 1, text: '' }],
+                gridRows: Array.isArray(q.options?.gridRows)
+                  ? q.options.gridRows.map((r: any) => typeof r === 'string' ? { id: crypto.randomUUID(), text: r } : r)
+                  : [{ id: crypto.randomUUID(), text: '' }],
+                gridCols: Array.isArray(q.options?.gridCols)
+                  ? q.options.gridCols.map((c: any) => typeof c === 'string' ? { id: crypto.randomUUID(), text: c } : c)
+                  : [{ id: crypto.randomUUID(), text: '' }],
                 gridInputType: q.options?.gridInputType || 'radio',
-                shortTextValidation: q.options?.validation || { enabled: false, type: 'number', condition: 'between', value1: '', value2: '', errorMsg: '' }
+                shortTextValidation: q.options?.validation || { enabled: false, type: 'number', condition: 'between', value1: '', value2: '', errorMsg: '' },
+                checkboxValidation: q.options?.checkboxValidation || { enabled: false, min: '', max: '', errorMsg: '' },
+                shortTextMultiple: q.options?.shortTextMultiple || { enabled: false, style: 'bullet' }
               };
             });
             setQuestions(loadedQuestions);
@@ -213,10 +237,18 @@ export default function FormEditorPage() {
         const { data: { session } } = await supabase.auth.getSession();
         const userId = session?.user?.id;
         
+        // 保存用にデータを整形（options, gridRows, gridCols を文字列配列に変換）
+        const strippedQuestions = questions.map(q => ({
+          ...q,
+          options: q.options.map(o => o.text),
+          gridRows: q.gridRows.map(r => r.text),
+          gridCols: q.gridCols.map(c => c.text),
+        }));
+
         const response = await fetch(`http://localhost:3000/api/forms/${formId}/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, description, questions, created_by: userId })
+          body: JSON.stringify({ title, description, questions: strippedQuestions, created_by: userId, allow_multiple_responses: currentAllowMultiple, allow_edit_responses: currentAllowEdit })
         });
 
         if (!response.ok) throw new Error('保存に失敗しました');
@@ -294,7 +326,9 @@ export default function FormEditorPage() {
     dueDate: string, 
     dueTime: string, 
     isAnonymous: boolean, 
-    timezone: string 
+    timezone: string,
+    allowMultipleResponses: boolean,
+    allowEditResponses: boolean
   }) => {
     setIsSaving(true);
     try {
@@ -327,6 +361,8 @@ export default function FormEditorPage() {
           assigned_user_ids: settings.assignedUsers,
           due_date: finalDeadline,
           allow_anonymous: settings.isAnonymous,
+          allow_multiple_responses: settings.allowMultipleResponses,
+          allow_edit_responses: settings.allowEditResponses,
           timezone: settings.timezone,
           status: newStatus
         })
@@ -338,6 +374,8 @@ export default function FormEditorPage() {
       setCurrentDueDate(settings.dueDate);
       setCurrentIsAnonymous(settings.isAnonymous);
       setCurrentAssignedUsers(settings.assignedUsers);
+      setCurrentAllowMultiple(settings.allowMultipleResponses);
+      setCurrentAllowEdit(settings.allowEditResponses);
 
       const message = newStatus === 'draft' 
         ? '全員を削除したため、下書きに戻しました。' 
@@ -388,6 +426,8 @@ export default function FormEditorPage() {
             initialAssignedUsers={currentAssignedUsers}
             initialDueDate={currentDueDate}
             initialIsAnonymous={currentIsAnonymous}
+            initialAllowMultipleResponses={currentAllowMultiple}
+            initialAllowEditResponses={currentAllowEdit}
             onSend={handlePublish}
           />
         </div>
@@ -412,7 +452,7 @@ export default function FormEditorPage() {
           <FileText className="w-5 h-5" />
           <span className="text-[8px] font-medium text-gray-400 leading-none mt-0.5">フォーム一覧</span>
         </button>
-        <span className="font-bold text-gray-800 max-w-[120px] md:max-w-xs truncate text-lg">
+        <span className="hidden md:block font-bold text-gray-800 max-w-[120px] md:max-w-xs truncate md:text-lg">
           {title || '無題のフォーム'}
         </span>
       </div>

@@ -1,11 +1,11 @@
 // src/components/Answer/FormAnswerPage.tsx
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import type { QuestionData } from '../FormEditor/FormEditorPage';
 import FormAnswerUI from './components/FormAnswerUI';
 import { supabase } from '../../../lib/supabase';
-import { CheckCircle2, Home, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Home, Edit2, PlusCircle } from 'lucide-react';
 
 export default function FormAnswerPage() {
   const { id } = useParams();
@@ -21,13 +21,72 @@ export default function FormAnswerPage() {
   const [isLoading, setIsLoading] = useState(true);
   
   // 🌟 新しいステート群
+  const [_, setWasCleaned] = useState(false);         // フォーム編集による自動クリーンアップが発生したか
   const [isSubmitted, setIsSubmitted] = useState(false);       // 今回送信成功したか
-  const [isAlreadySubmitted, setIsAlreadySubmitted] = useState(false); // 過去に送信済みか
+  const [__, setIsAlreadySubmitted] = useState(false); // 過去に送信済みか
   const [isSaving, setIsSaving] = useState(false);             // 自動保存中か
   const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
+  // 🌟 複数回答・編集のための追加ステート
+  const [responseId, setResponseId] = useState<string | null>(null);
+  const [allowMultiple, setAllowMultiple] = useState(false);
+  const [allowEdit, setAllowEdit] = useState(true);
+  const [guardState, setGuardState] = useState<'none' | 'blocked' | 'choice'>('none');
+  const [pastResponses, setPastResponses] = useState<any[]>([]);
+
   // 1. フォームデータ ＆ 自分の回答状況の取得
+  const cleanAnswers = (qs: QuestionData[], rawAns: Record<string, any>) => {
+    let isChanged = false;
+    const cleaned: Record<string, any> = {};
+
+    Object.entries(rawAns).forEach(([qId, ans]) => {
+      if (ans === undefined || ans === null) return;
+      const q = qs.find(q => q.id === qId);
+      if (!q) { isChanged = true; return; }
+
+      if (q.type === 'radio' || q.type === 'dropdown') {
+        if (!q.options.some(opt => opt.text === ans)) isChanged = true;
+        else cleaned[qId] = ans;
+      } else if (q.type === 'checkbox') {
+        if (Array.isArray(ans)) {
+          const filtered = ans.filter(val => q.options.some(opt => opt.text === val));
+          if (filtered.length !== ans.length) isChanged = true;
+          if (filtered.length > 0) cleaned[qId] = filtered;
+        } else { isChanged = true; }
+      } else if (q.type === 'grid_radio') {
+        const newGridAns: Record<string, any> = {};
+        const validRows = new Set(q.gridRows.map(r => r.text));
+        const validCols = new Set(q.gridCols.map(c => c.text));
+        let gridChanged = false;
+        
+        Object.entries(ans).forEach(([row, col]) => {
+          if (validRows.has(row)) {
+            if (typeof col === 'string' && validCols.has(col)) {
+              newGridAns[row] = col;
+            } else if (Array.isArray(col)) {
+              const fCol = col.filter((c: any) => validCols.has(c));
+              if (fCol.length > 0) newGridAns[row] = fCol;
+              if (fCol.length !== col.length) gridChanged = true;
+            } else { gridChanged = true; }
+          } else { gridChanged = true; }
+        });
+        if (gridChanged) isChanged = true;
+        if (Object.keys(newGridAns).length > 0) cleaned[qId] = newGridAns;
+      } else {
+        cleaned[qId] = ans;
+      }
+    });
+    return { cleaned, isChanged };
+  };
+
+  const loadAnswersWithCleanup = (rawAns: Record<string, any>, qs: QuestionData[] = questions) => {
+    const { cleaned, isChanged } = cleanAnswers(qs, rawAns || {});
+    setAnswers(cleaned);
+    if (isChanged) setWasCleaned(true);
+    if (isChanged) setHasUnsavedChanges(true);
+  };
+
   useEffect(() => {
     const fetchAllData = async () => {
       if (!id) return;
@@ -39,8 +98,8 @@ export default function FormAnswerPage() {
         const [formRes, draftRes] = await Promise.all([
           fetch(`http://localhost:3000/api/forms/${id}`),
           userId && !isPreviewMode 
-            ? supabase.from('form_responses').select('*').eq('form_id', id).eq('user_id', userId).maybeSingle()
-            : Promise.resolve({ data: null }) // ログインなし/プレビューならnullで即解決
+            ? supabase.from('form_responses').select('*').eq('form_id', id).eq('user_id', userId).order('updated_at', { ascending: false })
+            : Promise.resolve({ data: [] })
         ]);
 
         if (!formRes.ok) throw new Error('フォームの取得に失敗しました');
@@ -49,18 +108,47 @@ export default function FormAnswerPage() {
         // 1. まずフォームの基本情報をセット
         setTitle(formData.title || '');
         setDescription(formData.description || '');
-        setQuestions(formData.questions || []);
+        // 削除済みでない質問のみを表示し、UI用のIDを付与する
+        const filteredQuestions = (formData.questions || []).filter((q: any) => !q.isDeleted);
+        const mappedQuestions = filteredQuestions.map((q: any) => ({
+          ...q,
+          options: Array.isArray(q.options) 
+            ? q.options.map((c: any) => typeof c === 'string' ? { id: crypto.randomUUID(), text: c } : c)
+            : [],
+          gridRows: Array.isArray(q.gridRows)
+            ? q.gridRows.map((r: any) => typeof r === 'string' ? { id: crypto.randomUUID(), text: r } : r)
+            : [],
+          gridCols: Array.isArray(q.gridCols)
+            ? q.gridCols.map((c: any) => typeof c === 'string' ? { id: crypto.randomUUID(), text: c } : c)
+            : []
+        }));
+        setQuestions(mappedQuestions);
+        
+        const allowMult = formData.allow_multiple_responses || false;
+        const allowEd = formData.allow_edit_responses !== false; // default true
+        setAllowMultiple(allowMult);
+        setAllowEdit(allowEd);
 
-        // 2. 次に回答の状態を判定
-        const responseData = draftRes?.data;
-        if (responseData) {
-          if (responseData.status === 'submitted') {
-            setIsAlreadySubmitted(true);
-          } else if (responseData.status === 'draft' && responseData.content) {
-            // 下書きがある場合は、ここで一気にセット！
-            setAnswers(responseData.content);
+        // 2. 回答状態の判定
+        const pResponses = draftRes?.data || [];
+        setPastResponses(pResponses);
+        
+        const hasSubmitted = pResponses.some((r: any) => r.status === 'submitted');
+        const latestDraft = pResponses.find((r: any) => r.status === 'draft');
+
+        if (hasSubmitted) {
+          setIsAlreadySubmitted(true);
+          if (allowMult || allowEd) {
+            setGuardState('choice');
+          } else {
+            setGuardState('blocked');
           }
+        } else if (latestDraft) {
+          // 未送信だが下書きがある場合 -> 下書きを読み込む
+          setResponseId(latestDraft.id);
+          loadAnswersWithCleanup(latestDraft.content, mappedQuestions);
         }
+
 
       } catch (error) {
         console.error('読み込み失敗:', error);
@@ -74,8 +162,9 @@ export default function FormAnswerPage() {
 
   // 🌟 2. 自動保存（下書き）のロジック
   useEffect(() => {
-    // プレビューモード、未変更、またはすでに送信済みの場合は自動保存しない
-    if (isPreviewMode || !hasUnsavedChanges || isAlreadySubmitted || isSubmitted) return;
+    // プレビューモード、未変更、またはすでに送信済み（編集不可/新規作成中ではない）の場合は自動保存しない
+    // ガード画面（choice/blocked）の間も保存しない
+    if (isPreviewMode || !hasUnsavedChanges || isSubmitted || guardState !== 'none') return;
 
     // ユーザーの入力が止まってから1.5秒後に保存を走らせる
     const timer = setTimeout(async () => {
@@ -90,12 +179,17 @@ export default function FormAnswerPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            response_id: responseId,
             content: answers,
             user_id: session.user.id
           })
         });
 
         if (res.ok) {
+          const resData = await res.json();
+          if (resData.response_id && !responseId) {
+            setResponseId(resData.response_id); // 新規下書き時にIDをセット
+          }
           setLastSavedTime(new Date());
         }
       } catch (err) {
@@ -106,7 +200,7 @@ export default function FormAnswerPage() {
     }, 1500);
 
     return () => clearTimeout(timer); // 1.5秒以内に入力があったらタイマーをキャンセル
-  }, [answers, hasUnsavedChanges, id, isPreviewMode, isAlreadySubmitted, isSubmitted]);
+  }, [answers, hasUnsavedChanges, id, isPreviewMode, isSubmitted, guardState, responseId]);
 
 
   // 3. 送信ボタンを押した時のメイン処理
@@ -124,6 +218,7 @@ export default function FormAnswerPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          response_id: responseId,
           answers,
           turnstileToken,
           user_id: session?.user?.id || null, 
@@ -143,12 +238,69 @@ export default function FormAnswerPage() {
     }
   };
 
+
+  const handleEditChoice = () => {
+    const latestResponse = pastResponses.find(r => r.status === 'draft') || pastResponses.find(r => r.status === 'submitted');
+    if (latestResponse) {
+      setResponseId(latestResponse.id);
+      loadAnswersWithCleanup(latestResponse.content);
+    }
+    setGuardState('none');
+  };
+
+  const handleNewChoice = () => {
+    setResponseId(null);
+    setAnswers({});
+    setGuardState('none');
+  };
+
   // ----------------------------------------------------
   // UIのレンダリング
   // ----------------------------------------------------
 
-  // 🌟 A. 既に回答済みの場合のガード画面
-  if (isAlreadySubmitted) {
+  // 🌟 A-1. ガード画面: 選択画面 (Edit or New)
+  if (guardState === 'choice') {
+    return (
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-gray-50 p-6">
+        <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md animate-in fade-in duration-300">
+          <div className="w-20 h-20 bg-blue-100 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle2 className="w-12 h-12" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">すでに回答済みです</h2>
+          <p className="text-gray-500 mb-8 leading-relaxed whitespace-pre-wrap">
+            {allowEdit && allowMultiple 
+              ? "このフォームは回答の編集と\n複数回の回答が許可されています。"
+              : allowEdit 
+                ? "以前の回答を編集することができます。"
+                : "このフォームは複数回の回答が可能です。"}
+          </p>
+          <div className="flex flex-col gap-3">
+            {allowEdit && (
+              <button 
+                onClick={handleEditChoice}
+                className="w-full py-4 bg-gray-800 text-white rounded-xl font-bold hover:bg-gray-900 transition-all shadow-md flex items-center justify-center gap-2"
+              >
+                <Edit2 className="w-5 h-5" />
+                前回の回答を編集する
+              </button>
+            )}
+            {allowMultiple && (
+              <button 
+                onClick={handleNewChoice}
+                className="w-full py-4 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+              >
+                <PlusCircle className="w-5 h-5" />
+                新しく回答する
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 🌟 A-2. ガード画面: ブロック (Both disabled)
+  if (guardState === 'blocked') {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-gray-50 p-6">
         <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md animate-in fade-in duration-300">

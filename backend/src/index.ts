@@ -73,6 +73,39 @@ app.get('/api/basic_profile_info/me', async (req: Request, res: Response) => {
   }
 });
 
+// 自分のプロフィール情報を更新
+app.patch('/api/basic_profile_info/me', async (req: Request, res: Response) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: '認証トークンがありません' });
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) throw authError;
+
+    // Body から更新したいフィールドのみ受け取る
+    const updates = req.body;
+    
+    // 更新日時をセット
+    updates.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('basic_profile_info')
+      .update(updates)
+      .eq('id', user.id)
+      .select()
+      .single(); 
+
+    if (error) throw error;
+    res.json(data);
+    
+  } catch (error: any) {
+    console.error('プロフィール更新エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 指定したID（他人）のプロフィール情報を取得
 app.get('/api/basic_profile_info/:id', async (req: Request, res: Response) => {
   try {
@@ -117,11 +150,19 @@ app.get('/api/forms/:id', async (req: Request, res: Response) => {
 
     if (formError || !form) return res.status(404).json({ error: 'フォームが見つかりません' });
 
-    const { data: qLinks, error: qError } = await supabase
+    const includeDeleted = req.query.includeDeleted === 'true';
+
+    let query = supabase
       .from('form_questions')
       .select('*, questions(*)')
       .eq('form_id', formId)
       .order('order_index', { ascending: true });
+
+    if (!includeDeleted) {
+      query = query.eq('is_deleted', false);
+    }
+
+    const { data: qLinks, error: qError } = await query;
 
     if (qError) throw qError;
 
@@ -138,7 +179,8 @@ app.get('/api/forms/:id', async (req: Request, res: Response) => {
         gridRows: q.options?.gridRows || [],
         gridCols: q.options?.gridCols || [],
         gridInputType: q.options?.gridInputType || 'radio',
-        shortTextValidation: q.options?.validation || { enabled: false }
+        shortTextValidation: q.options?.validation || { enabled: false },
+        isDeleted: link.is_deleted || false
       };
     }) || [];
 
@@ -156,7 +198,7 @@ app.get('/api/forms/:id', async (req: Request, res: Response) => {
 // ==========================================
 app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
   const { id: formId } = req.params;
-  const { title, description, questions = [], created_by } = req.body;
+  const { title, description, questions = [], created_by, allow_multiple_responses, allow_edit_responses } = req.body;
 
   try {
     // 0. フォームの現在のステータスを確認（なければ draft）
@@ -174,6 +216,8 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
       description,
       status: currentStatus,
       created_by,
+      allow_multiple_responses: allow_multiple_responses !== undefined ? allow_multiple_responses : false,
+      allow_edit_responses: allow_edit_responses !== undefined ? allow_edit_responses : true,
       updated_at: new Date().toISOString(),
     });
     if (formError) throw formError;
@@ -192,7 +236,9 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
           gridRows: q.gridRows,
           gridCols: q.gridCols,
           gridInputType: q.gridInputType,
-          validation: q.shortTextValidation
+          validation: q.shortTextValidation,
+          checkboxValidation: q.checkboxValidation,
+          shortTextMultiple: q.shortTextMultiple
         }
       });
       if (qError) throw qError;
@@ -210,15 +256,38 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
     const existingQuestionIds = existingLinks?.map(link => link.question_id) || [];
     const newQuestionIds = questions.map((q: any) => q.id);
 
-    // ② 削除: 画面から消された質問の紐付けを削除
+    // ② 削除: 画面から消された質問の紐付けを削除（スマート・ソフトデリート）
     const idsToDelete = existingQuestionIds.filter(id => !newQuestionIds.includes(id));
     if (idsToDelete.length > 0) {
-      const { error: deleteError } = await supabase
-        .from('form_questions')
-        .delete()
+      // 既に回答が存在するかチェック
+      const { data: responses, error: respError } = await supabase
+        .from('form_responses')
+        .select('id')
         .eq('form_id', formId)
-        .in('question_id', idsToDelete);
-      if (deleteError) throw deleteError;
+        .eq('status', 'submitted')
+        .limit(1);
+
+      if (respError) throw respError;
+
+      const hasResponses = responses && responses.length > 0;
+
+      if (hasResponses) {
+        // 回答がある場合はソフトデリート (is_deleted = true)
+        const { error: updateError } = await supabase
+          .from('form_questions')
+          .update({ is_deleted: true })
+          .eq('form_id', formId)
+          .in('question_id', idsToDelete);
+        if (updateError) throw updateError;
+      } else {
+        // 回答がない場合は物理削除
+        const { error: deleteError } = await supabase
+          .from('form_questions')
+          .delete()
+          .eq('form_id', formId)
+          .in('question_id', idsToDelete);
+        if (deleteError) throw deleteError;
+      }
     }
 
     // ③ 追加(INSERT) と 更新(UPDATE) の仕分け
@@ -235,7 +304,8 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
           form_id: formId,
           question_id: q.id,
           order_index: index,
-          is_required: q.isRequired || false
+          is_required: q.isRequired || false,
+          is_deleted: false // 復活・維持の場合に備えてfalse
         });
       } else {
         // 新しい質問の場合 -> 新規追加リストへ
@@ -243,7 +313,8 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
           form_id: formId,
           question_id: q.id,
           order_index: index,
-          is_required: q.isRequired || false
+          is_required: q.isRequired || false,
+          is_deleted: false
         });
       }
     });
@@ -272,7 +343,7 @@ app.post('/api/forms/:id/save', async (req: Request, res: Response) => {
 // ==========================================
 app.post('/api/forms/:id/publish', async (req: Request, res: Response) => {
   const { id: formId } = req.params;
-  const { assigned_user_ids, due_date, allow_anonymous, timezone, status } = req.body;
+  const { assigned_user_ids, due_date, allow_anonymous, allow_multiple_responses, allow_edit_responses, timezone, status } = req.body;
 
   try {
     const publish_settings = {
@@ -289,6 +360,8 @@ app.post('/api/forms/:id/publish', async (req: Request, res: Response) => {
         status: status,
         due_date: due_date || null,
         allow_anonymous: allow_anonymous,
+        allow_multiple_responses: allow_multiple_responses ?? false,
+        allow_edit_responses: allow_edit_responses ?? true,
         publish_settings: publish_settings,
         updated_at: new Date().toISOString()
       })
@@ -303,28 +376,100 @@ app.post('/api/forms/:id/publish', async (req: Request, res: Response) => {
   }
 });
 
+app.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
+  const { id: formId } = req.params;
+  const { answers, turnstileToken, user_id, response_id } = req.body;
+
+  try {
+    const verifyResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: process.env.TURNSTILE_SECRET_KEY, response: turnstileToken })
+    });
+    const verifyData = await verifyResponse.json();
+    if (!verifyData.success) return res.status(400).json({ error: 'Bot検知失敗' });
+
+    let finalResponseId = response_id;
+
+    if (response_id) {
+      // 更新
+      const { error: responseError } = await supabase
+        .from('form_responses')
+        .update({
+          content: answers,
+          status: 'submitted',
+          submitted_at: new Date().toISOString()
+        })
+        .eq('id', response_id);
+      
+      if (responseError) throw responseError;
+    } else {
+      // 新規作成
+      const { data, error: responseError } = await supabase
+        .from('form_responses')
+        .insert({
+          form_id: formId,
+          user_id: user_id || null, // 匿名対応
+          content: answers,
+          status: 'submitted',
+          submitted_at: new Date().toISOString()
+        })
+        .select('id')
+        .single();
+      
+      if (responseError) throw responseError;
+      finalResponseId = data?.id;
+    }
+
+    res.json({ message: "送信完了", response_id: finalResponseId });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==========================================
 // 💾 フォーム回答の「下書き」保存 API
 // ==========================================
 app.post('/api/forms/:id/responses/save', async (req: Request, res: Response) => {
   const { id: formId } = req.params;
-  const { content, user_id } = req.body;
+  const { content, user_id, response_id } = req.body;
 
   if (!user_id) return res.status(401).json({ error: 'ログインが必要です' });
 
   try {
-    const { error } = await supabase
-      .from('form_responses')
-      .upsert({
-        form_id: formId,
-        user_id: user_id,
-        content: content,
-        status: 'draft',
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'form_id,user_id' });
+    let resultId = response_id;
 
-    if (error) throw error;
-    res.json({ message: "下書きを保存しました" });
+    if (response_id) {
+      // 既存の回答を更新
+      const { error } = await supabase
+        .from('form_responses')
+        .update({
+          content: content,
+          status: 'draft',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', response_id)
+        .eq('user_id', user_id); // セキュリティのためユーザー確認
+      if (error) throw error;
+    } else {
+      // 新規作成
+      const { data, error } = await supabase
+        .from('form_responses')
+        .insert({
+          form_id: formId,
+          user_id: user_id,
+          content: content,
+          status: 'draft',
+          updated_at: new Date().toISOString()
+        })
+        .select('id')
+        .single();
+      
+      if (error) throw error;
+      resultId = data.id;
+    }
+
+    res.json({ message: "下書きを保存しました", response_id: resultId });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

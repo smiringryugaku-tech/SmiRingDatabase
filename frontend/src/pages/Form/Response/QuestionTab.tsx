@@ -177,9 +177,11 @@ function PieChartView({ question, responses, onBarClick }: {
   if (countMap.size === 0) return <EmptyChart />;
 
   const data = Array.from(countMap.entries()).map(([key, userIds], i) => {
-    const label = question.type === 'radio'
-      ? (question.options.find(o => o.id === key)?.text ?? String(key))
-      : String(key);
+    const labelStr = String(key);
+    // テキストベースで現在の選択肢にあるか確認
+    const isCurrent = question.options.some(o => o.text === labelStr);
+    const label = isCurrent ? labelStr : `${labelStr} (旧選択肢)`;
+    
     return { name: label, value: userIds.length, userIds, fill: CHART_COLORS[i % CHART_COLORS.length] };
   });
   const total = data.reduce((s, d) => s + d.value, 0);
@@ -248,13 +250,15 @@ function BarChartView({ question, responses, onBarClick }: {
     const val = r.content?.[question.id];
     if (val === null || val === undefined) return;
     if (question.type === 'checkbox' && Array.isArray(val)) {
-      val.forEach((id: number) => {
-        if (!countMap.has(id)) countMap.set(id, []);
-        countMap.get(id)!.push(r.user_id);
+      val.forEach((text: any) => {
+        const textStr = String(text);
+        if (!countMap.has(textStr)) countMap.set(textStr, []);
+        countMap.get(textStr)!.push(r.user_id);
       });
     } else {
-      if (!countMap.has(val)) countMap.set(val, []);
-      countMap.get(val)!.push(r.user_id);
+      const textStr = String(val);
+      if (!countMap.has(textStr)) countMap.set(textStr, []);
+      countMap.get(textStr)!.push(r.user_id);
     }
   });
 
@@ -262,14 +266,40 @@ function BarChartView({ question, responses, onBarClick }: {
 
   let data: { name: string; value: number; userIds: string[] }[];
   if (question.type === 'checkbox') {
+    // 現在の選択肢をベースに作成
     data = question.options.map(opt => ({
-      name: opt.text, value: countMap.get(opt.id)?.length ?? 0, userIds: countMap.get(opt.id) ?? [],
+      name: opt.text, 
+      value: countMap.get(opt.text)?.length ?? 0, 
+      userIds: countMap.get(opt.text) ?? [],
     }));
+    
+    // 現在の選択肢にない回答（旧選択肢）を追加
+    const currentOptionsSet = new Set(question.options.map(o => o.text));
+    countMap.forEach((userIds, text) => {
+      if (!currentOptionsSet.has(String(text))) {
+        data.push({
+          name: `${text} (旧選択肢)`,
+          value: userIds.length,
+          userIds: userIds,
+        });
+      }
+    });
   } else {
     data = [];
     for (let v = question.scale.min; v <= question.scale.max; v++) {
       data.push({ name: String(v), value: countMap.get(v)?.length ?? 0, userIds: countMap.get(v) ?? [] });
     }
+    // スケール外の回答があれば追加（基本的にはないはずだが念の為）
+    countMap.forEach((userIds, val) => {
+      const num = Number(val);
+      if (isNaN(num) || num < question.scale.min || num > question.scale.max) {
+        data.push({
+          name: `${val} (範囲外/旧設定)`,
+          value: userIds.length,
+          userIds: userIds,
+        });
+      }
+    });
   }
 
   const barH = 48;
@@ -303,23 +333,46 @@ function GridBarView({ question, responses, onBarClick }: {
   return (
     <div ref={containerRef} className="w-full space-y-8">
       {question.gridRows.map((row, ri) => {
-        const countMap = new Map<number, string[]>();
+        const countMap = new Map<string | number, string[]>();
         responses.forEach(r => {
           const gridAns = r.content?.[question.id];
           if (!gridAns || typeof gridAns !== 'object') return;
-          const val = gridAns[row.id];
+          // 行・列ともにテキストベースで取得
+          const val = gridAns[row.text];
           if (val !== null && val !== undefined) {
-            if (!countMap.has(val)) countMap.set(val, []);
-            countMap.get(val)!.push(r.user_id);
+            if (Array.isArray(val)) {
+              val.forEach((v: any) => {
+                const vStr = String(v);
+                if (!countMap.has(vStr)) countMap.set(vStr, []);
+                countMap.get(vStr)!.push(r.user_id);
+              });
+            } else {
+              const vStr = String(val);
+              if (!countMap.has(vStr)) countMap.set(vStr, []);
+              countMap.get(vStr)!.push(r.user_id);
+            }
           }
         });
 
         const data = question.gridCols.map(col => ({
           name: col.text || String(col.id),
-          value: countMap.get(col.id)?.length ?? 0,
-          userIds: countMap.get(col.id) ?? [],
+          value: countMap.get(col.text)?.length ?? 0,
+          userIds: countMap.get(col.text) ?? [],
           label: `${row.text}: ${col.text}`,
         }));
+
+        // 現在の列設定にない回答（旧選択肢）があれば追加
+        const currentColTexts = new Set(question.gridCols.map(c => c.text));
+        countMap.forEach((userIds, text) => {
+          if (!currentColTexts.has(String(text))) {
+            data.push({
+              name: `${text} (旧選択肢)`,
+              value: userIds.length,
+              userIds: userIds,
+              label: `${row.text}: ${text} (旧選択肢)`,
+            });
+          }
+        });
 
         const h = Math.max(160, data.length * 44);
 
