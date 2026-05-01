@@ -1,28 +1,34 @@
 import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import BasicInfoPage from './BasicInfoTab';
 
 export default function ProfilePage() {
+  const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<'basic' | 'detail'>('basic');
   const [profileData, setProfileData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 🌟 コンポーネント起動時に自分のデータを取得
   useEffect(() => {
-    const fetchMyProfile = async () => {
+    const fetchProfile = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
+        if (id) {
+          // 他のメンバーのプロフィール
+          const response = await fetch(`http://localhost:3000/api/basic_profile_info/${id}`);
+          const data = await response.json();
+          setProfileData(data);
+        } else {
+          // 自分のプロフィール
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          if (!token) return;
 
-        if (!token) return;
-
-        // 前回作成したバックエンドの /api/profile/me を叩く
-        const response = await fetch('http://localhost:3000/api/basic_profile_info/me', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        const data = await response.json();
-        setProfileData(data);
+          const response = await fetch('http://localhost:3000/api/basic_profile_info/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await response.json();
+          setProfileData(data);
+        }
       } catch (error) {
         console.error('プロフィール取得エラー:', error);
       } finally {
@@ -30,8 +36,8 @@ export default function ProfilePage() {
       }
     };
 
-    fetchMyProfile();
-  }, []);
+    fetchProfile();
+  }, [id]);
 
   // 🌟 画像URLの判定ロジック
   const avatarUrl = profileData?.avatar_link 

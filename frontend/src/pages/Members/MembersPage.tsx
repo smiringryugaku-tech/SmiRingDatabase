@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 // ==========================================
 // 💀 新しい縦型カード用スケルトン
@@ -229,10 +230,12 @@ function VerticalMemberCard({ member }: { member: any }) {
   const nameKanji = member.name_kanji || '';
   const avatarUrl = member.avatar_link || '/assets/images/profile_photo_empty.png';
 
+  const navigate = useNavigate();
+
   return (
-    <div 
+    <div
       className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md hover:border-violet-200 transition-all duration-300 cursor-pointer flex flex-col aspect-[3/4] group"
-      onClick={() => alert(`TODO: ${nameEnglish} さんの詳細プロフィール画面へ遷移`)}
+      onClick={() => navigate(`/members/${member.id}`)}
     >
       {/* 上部: 写真エリア (約65%) */}
       <div className="h-[65%] w-full relative bg-gray-100 overflow-hidden">

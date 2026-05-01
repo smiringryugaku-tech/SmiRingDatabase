@@ -78,6 +78,23 @@ app.get('/api/basic_profile_info/me', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/basic_profile_info/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const { data, error } = await supabase
+      .from('basic_profile_info')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error: any) {
+    console.error('プロフィール取得エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==========================================
 // 📖 フォーム＆質問の取得 API
 // ==========================================
