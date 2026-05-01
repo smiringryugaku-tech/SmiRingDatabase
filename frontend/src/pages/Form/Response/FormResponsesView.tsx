@@ -6,6 +6,7 @@ import type { ResponseSummary } from './types';
 import SheetTab from './SheetTab';
 import QuestionTab from './QuestionTab';
 import IndividualTab from './IndividualTab';
+import { API_BASE_URL } from '../../../config';
 
 type ResponseTab = 'sheet' | 'question' | 'individual';
 
@@ -30,7 +31,7 @@ export default function FormResponsesView({ formId }: { formId: string }) {
       setIsLoading(true);
       try {
         // 1. フォームの質問 & 匿名設定を取得
-        const formRes = await fetch(`http://localhost:3000/api/forms/${formId}`);
+        const formRes = await fetch(`${API_BASE_URL}/api/forms/${formId}`);
         if (formRes.ok) {
           const formData = await formRes.json();
           setIsAnonymous(formData.allow_anonymous ?? false);
@@ -52,7 +53,7 @@ export default function FormResponsesView({ formId }: { formId: string }) {
         // 2. 回答一覧を取得（content付き、submitted_at ascending）
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
-        const respRes = await fetch(`http://localhost:3000/api/forms/${formId}/responses`, {
+        const respRes = await fetch(`${API_BASE_URL}/api/forms/${formId}/responses`, {
           headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         });
         if (respRes.ok) {

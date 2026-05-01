@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import BasicInfoPage from './BasicInfoTab';
 import DetailInfoTab from './DetailInfoTab';
+import { API_BASE_URL } from '../../config';
 
 export default function ProfilePage() {
   const { id } = useParams<{ id: string }>(); 
@@ -25,10 +26,10 @@ export default function ProfilePage() {
       let hasEditPermission = false;
 
       if (!id || id === myUserId) {
-        endpoint = 'http://localhost:3000/api/basic_profile_info/me';
+        endpoint = `${API_BASE_URL}/api/basic_profile_info/me`;
         hasEditPermission = true;
       } else {
-        endpoint = `http://localhost:3000/api/basic_profile_info/${id}`;
+        endpoint = `${API_BASE_URL}/api/basic_profile_info/${id}`;
         hasEditPermission = false;
       }
 

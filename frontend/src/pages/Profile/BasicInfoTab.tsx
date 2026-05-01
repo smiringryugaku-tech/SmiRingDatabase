@@ -4,6 +4,7 @@ import { SquarePen, ChevronRight, ArrowDown } from 'lucide-react';
 import ProfileEditModal from './components/ProfileEditModal';
 import { BASIC_INFO_FIELDS } from './basicInfoFields';
 import { supabase } from '../../lib/supabase';
+import { API_BASE_URL } from '../../config';
 
 // --- Lucideアイコンのヘルパー ---
 const LucideIcon = ({ name, className }: { name: string, className?: string }) => {
@@ -209,7 +210,7 @@ export default function BasicInfoPage({ initialData, isEditable = false, onDataC
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) throw new Error('認証エラー');
 
-    const res = await fetch('http://localhost:3000/api/basic_profile_info/me', {
+    const res = await fetch(`${API_BASE_URL}/api/basic_profile_info/me`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',

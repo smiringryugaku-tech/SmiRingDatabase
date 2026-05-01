@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Send, Search, Users, Square, X, Settings, ChevronDown } from 'lucide-react';
 import { WorldLocations } from '../../../../lib/timezones';
 import { supabase } from '../../../../lib/supabase';
+import { API_BASE_URL } from '../../../../config';
 
 type Member = { id: string; name_english: string; role?: string; avatar_link?: string; };
 
@@ -50,7 +51,7 @@ export default function SendSettings({
   useEffect(() => {
     const fetchMembers = async () => {
       try {
-        const response = await fetch('http://localhost:3000/api/basic_profile_info');
+        const response = await fetch(`${API_BASE_URL}/api/basic_profile_info`);
         if (response.ok) setMembers(await response.json());
       } catch (error) {
         console.error(error);
@@ -65,7 +66,7 @@ export default function SendSettings({
     const fetchMyTimezone = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const response = await fetch('http://localhost:3000/api/basic_profile_info/me', {
+      const response = await fetch(`${API_BASE_URL}/api/basic_profile_info/me`, {
         headers: { 'Authorization': `Bearer ${session.access_token}` }
       });
       if (response.ok) {

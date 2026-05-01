@@ -376,57 +376,6 @@ app.post('/api/forms/:id/publish', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
-  const { id: formId } = req.params;
-  const { answers, turnstileToken, user_id, response_id } = req.body;
-
-  try {
-    const verifyResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: process.env.TURNSTILE_SECRET_KEY, response: turnstileToken })
-    });
-    const verifyData = await verifyResponse.json();
-    if (!verifyData.success) return res.status(400).json({ error: 'Bot検知失敗' });
-
-    let finalResponseId = response_id;
-
-    if (response_id) {
-      // 更新
-      const { error: responseError } = await supabase
-        .from('form_responses')
-        .update({
-          content: answers,
-          status: 'submitted',
-          submitted_at: new Date().toISOString()
-        })
-        .eq('id', response_id);
-      
-      if (responseError) throw responseError;
-    } else {
-      // 新規作成
-      const { data, error: responseError } = await supabase
-        .from('form_responses')
-        .insert({
-          form_id: formId,
-          user_id: user_id || null, // 匿名対応
-          content: answers,
-          status: 'submitted',
-          submitted_at: new Date().toISOString()
-        })
-        .select('id')
-        .single();
-      
-      if (responseError) throw responseError;
-      finalResponseId = data?.id;
-    }
-
-    res.json({ message: "送信完了", response_id: finalResponseId });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // ==========================================
 // 💾 フォーム回答の「下書き」保存 API
 // ==========================================
@@ -930,5 +879,5 @@ ${contextText}
 // サーバー起動
 // ==========================================
 app.listen(port, () => {
-  console.log(`🚀 サーバーが起動しました: http://localhost:${port}`);
+  console.log(`🚀 サーバーが起動しました: ${port}`);
 });

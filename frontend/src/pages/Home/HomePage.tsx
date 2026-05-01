@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -111,7 +112,7 @@ function ProfilesSection({ onClickMore }: { onClickMore: () => void }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/basic_profile_info')
+    fetch(`${API_BASE_URL}/api/basic_profile_info`)
       .then(r => r.json())
       .then((data: any[]) => {
         const sorted = [...data].sort((a, b) =>
@@ -233,7 +234,7 @@ function MiniCalendar() {
         const token = session?.access_token;
         if (!token || !userId) return;
 
-        const response = await fetch('http://localhost:3000/api/assigned-forms', {
+        const response = await fetch(`${API_BASE_URL}/api/assigned-forms`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!response.ok) return;
@@ -369,7 +370,7 @@ function UserProfileCard() {
         const token = session?.access_token;
         if (!token) return;
 
-        const response = await fetch('http://localhost:3000/api/basic_profile_info/me', {
+        const response = await fetch(`${API_BASE_URL}/api/basic_profile_info/me`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -438,7 +439,7 @@ function MyRecentForms() {
         const token = session?.access_token;
         if (!token) return;
 
-        const response = await fetch('http://localhost:3000/api/my-forms', {
+        const response = await fetch(`${API_BASE_URL}/api/my-forms`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -513,7 +514,7 @@ function AssignedFormsTimeline() {
         const token = session?.access_token;
         if (!token || !userId) return;
 
-        const response = await fetch('http://localhost:3000/api/assigned-forms', {
+        const response = await fetch(`${API_BASE_URL}/api/assigned-forms`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 

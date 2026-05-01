@@ -13,6 +13,7 @@ import FormEditorSkeleton from './components/FormEditorSkeleton';
 
 // Responseビューのimport
 import FormResponsesView from '../Response/FormResponsesView';
+import { API_BASE_URL } from '../../../config';
 
 export type QuestionData = {
   id: string;
@@ -245,7 +246,7 @@ export default function FormEditorPage() {
           gridCols: q.gridCols.map(c => c.text),
         }));
 
-        const response = await fetch(`http://localhost:3000/api/forms/${formId}/save`, {
+        const response = await fetch(`${API_BASE_URL}/api/forms/${formId}/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title, description, questions: strippedQuestions, created_by: userId, allow_multiple_responses: currentAllowMultiple, allow_edit_responses: currentAllowEdit })
@@ -354,7 +355,7 @@ export default function FormEditorPage() {
       }
       const newStatus = settings.assignedUsers.length === 0 ? 'draft' : 'published';
   
-      const response = await fetch(`http://localhost:3000/api/forms/${formId}/publish`, {
+      const response = await fetch(`${API_BASE_URL}/api/forms/${formId}/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

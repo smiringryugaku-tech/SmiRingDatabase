@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../../config';
 
 type Props = {
   userId?: string;
@@ -83,7 +84,7 @@ export default function DetailInfoTab({ userId, isEditable = false }: Props) {
       try {
         setIsLoading(true);
         // 新しく作成したバックエンドAPIを叩く
-        const res = await fetch(`http://localhost:3000/api/users/${userId}/form-responses`);
+        const res = await fetch(`${API_BASE_URL}/api/users/${userId}/form-responses`);
         const data = await res.json();
         setResponses(data || []);
       } catch (error) {

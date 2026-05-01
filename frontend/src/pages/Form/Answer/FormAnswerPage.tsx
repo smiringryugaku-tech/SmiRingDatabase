@@ -6,6 +6,7 @@ import type { QuestionData } from '../FormEditor/FormEditorPage';
 import FormAnswerUI from './components/FormAnswerUI';
 import { supabase } from '../../../lib/supabase';
 import { CheckCircle2, Home, Edit2, PlusCircle } from 'lucide-react';
+import { API_BASE_URL } from '../../../config';
 
 export default function FormAnswerPage() {
   const { id } = useParams();
@@ -96,7 +97,7 @@ export default function FormAnswerPage() {
 
         // 🌟 修正：Promise.all を使って並列でリクエストを投げる
         const [formRes, draftRes] = await Promise.all([
-          fetch(`http://localhost:3000/api/forms/${id}`),
+          fetch(`${API_BASE_URL}/api/forms/${id}`),
           userId && !isPreviewMode 
             ? supabase.from('form_responses').select('*').eq('form_id', id).eq('user_id', userId).order('updated_at', { ascending: false })
             : Promise.resolve({ data: [] })
@@ -175,7 +176,7 @@ export default function FormAnswerPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user?.id) return; // 匿名の場合は下書き保存スキップ（必要に応じて調整）
 
-        const res = await fetch(`http://localhost:3000/api/forms/${id}/responses/save`, {
+        const res = await fetch(`${API_BASE_URL}/api/forms/${id}/responses/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -214,7 +215,7 @@ export default function FormAnswerPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
-      const response = await fetch(`http://localhost:3000/api/forms/${id}/submit`, {
+      const response = await fetch(`${API_BASE_URL}/api/forms/${id}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
