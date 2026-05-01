@@ -49,10 +49,6 @@ export default function IndividualTab({ questions, responses, indexMap, isAnonym
     isAnonymous
   );
 
-  const submittedLabel = new Date(selectedResponse.submitted_at).toLocaleString('ja-JP', {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-  });
-
   // NavSelector用アイテムリスト
   const navItems = responses.map((r) => {
     const name = getDisplayName(r.user_id, r.name_english, indexMap, isAnonymous);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import type { QuestionData } from '../../Form/FormEditor/FormEditorPage';
 import AnswerBox from '../../Form/Answer/components/AnswerBox';
 
