@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 type Props = {
   userId?: string;
@@ -72,6 +72,7 @@ function FormResponseRow({ response, onClick }: { response: any, onClick: () => 
 
 // --- メインコンポーネント ---
 export default function DetailInfoTab({ userId, isEditable = false }: Props) {
+  console.log(`TODO: Use isEditable: ${isEditable} later`)
   const [responses, setResponses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 

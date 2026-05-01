@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom'; // React Routerの場合
 import { supabase } from '../../../lib/supabase'; // Supabaseクライアント
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, Send, Search, Users, Square, X, Settings, ChevronDown } from 'lucide-react';
 import { WorldLocations } from '../../../../lib/timezones';
 import { supabase } from '../../../../lib/supabase';

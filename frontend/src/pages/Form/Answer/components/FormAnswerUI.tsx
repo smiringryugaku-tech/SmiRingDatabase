@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { QuestionData } from '../../FormEditor/FormEditorPage';
 import { richTextStyles } from '../../../../components/ui/RichTextEditor';
 import AnswerBox from './AnswerBox';

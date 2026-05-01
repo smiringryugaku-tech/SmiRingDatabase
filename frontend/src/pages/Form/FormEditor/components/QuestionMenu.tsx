@@ -1,6 +1,6 @@
 // src/components/FormEditor/components/QuestionMenu.tsx
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { 
   CircleDot, CheckSquare, SquareChevronDown, LineDotRightHorizontal, 
   LayoutGrid, ArrowLeft, PenLine, NotebookPen, Image as ImageIcon, Trash2 

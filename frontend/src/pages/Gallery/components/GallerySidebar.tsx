@@ -1,5 +1,3 @@
-import React from 'react';
-
 export default function GallerySidebar() {
   return (
     // md:flex でPC画面の時は表示し、w-80 (320px) くらいで固定します（全体の1/3ほどのイメージ）
