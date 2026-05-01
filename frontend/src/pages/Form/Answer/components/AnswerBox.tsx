@@ -28,9 +28,9 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
             <input 
               type="radio" 
               name={`q-${question.id}`} 
-              value={opt.id}
-              checked={answer === opt.id}
-              onChange={() => onChange(opt.id)}
+              value={opt.text}
+              checked={answer === opt.text}
+              onChange={() => onChange(opt.text)}
               className="peer sr-only" 
             />
             <div className="w-5 h-5 rounded-full border-2 border-gray-300 peer-checked:border-blue-600 peer-checked:bg-blue-600 transition-colors" />
@@ -47,15 +47,15 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
 
   const renderCheckbox = () => {
     // チェックボックスは複数選択なので、配列で管理します
-    const currentAnswers: number[] = Array.isArray(answer) ? answer : [];
+    const currentAnswers: string[] = Array.isArray(answer) ? answer : [];
     const validation = question.checkboxValidation;
     
-    const handleToggle = (id: number) => {
+    const handleToggle = (text: string) => {
       let newAnswers = [];
-      if (currentAnswers.includes(id)) {
-        newAnswers = currentAnswers.filter(a => a !== id);
+      if (currentAnswers.includes(text)) {
+        newAnswers = currentAnswers.filter(a => a !== text);
       } else {
-        newAnswers = [...currentAnswers, id];
+        newAnswers = [...currentAnswers, text];
       }
       onChange(newAnswers);
     };
@@ -73,7 +73,7 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
     return (
       <div className="space-y-3 pt-2">
         {question.options.map((opt) => {
-          const isChecked = currentAnswers.includes(opt.id);
+          const isChecked = currentAnswers.includes(opt.text);
           const isDisabled = validation?.enabled && validation.max && !isChecked && currentAnswers.length >= Number(validation.max);
 
           return (
@@ -82,7 +82,7 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
                 <input 
                   type="checkbox" 
                   checked={isChecked}
-                  onChange={() => { if (!isDisabled) handleToggle(opt.id); }}
+                  onChange={() => { if (!isDisabled) handleToggle(opt.text); }}
                   disabled={isDisabled as boolean}
                   className="peer sr-only" 
                 />
@@ -182,7 +182,7 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
           <React.Fragment key={index}>
             {index > 0 && isMultiple && listStyle === 'arrow' && (
               <div className="flex justify-start pl-4 opacity-50 py-1">
-                <ArrowDown className="text-gray-800 font-bold text-lg" />
+                <Icons.ArrowDown className="text-gray-800 font-bold text-lg" />
               </div>
             )}
             <div className="flex items-center group/input">
@@ -230,18 +230,18 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
   };
 
   const renderGrid = () => {
-    // 答えの形式: { rowId1: colId1, rowId2: [colId1, colId2] }
+    // 答えの形式: { "Row1 text": "Col1 text", "Row2 text": ["Col1 text", "Col2 text"] }
     const gridAnswer = answer || {};
 
-    const handleGridChange = (rowId: number, colId: number) => {
+    const handleGridChange = (rowText: string, colText: string) => {
       if (question.gridInputType === 'radio') {
-        onChange({ ...gridAnswer, [rowId]: colId });
+        onChange({ ...gridAnswer, [rowText]: colText });
       } else {
-        const rowAnswers = Array.isArray(gridAnswer[rowId]) ? gridAnswer[rowId] : [];
-        if (rowAnswers.includes(colId)) {
-          onChange({ ...gridAnswer, [rowId]: rowAnswers.filter((id: number) => id !== colId) });
+        const rowAnswers = Array.isArray(gridAnswer[rowText]) ? gridAnswer[rowText] : [];
+        if (rowAnswers.includes(colText)) {
+          onChange({ ...gridAnswer, [rowText]: rowAnswers.filter((t: string) => t !== colText) });
         } else {
-          onChange({ ...gridAnswer, [rowId]: [...rowAnswers, colId] });
+          onChange({ ...gridAnswer, [rowText]: [...rowAnswers, colText] });
         }
       }
     };
@@ -251,7 +251,7 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
         <table className="text-sm text-left min-w-max border-separate border-spacing-y-2 mx-auto">
           <thead>
             <tr>
-              <th className="pb-2"></th>
+              <th key="empty-header" className="pb-2"></th>
               {question.gridCols.map(col => (
                 <th key={col.id} className="pb-2 px-4 text-center font-bold text-gray-600 w-24">
                   {col.text || <span className="text-gray-300 italic">列</span>}
@@ -262,13 +262,13 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
           <tbody>
             {question.gridRows.map((row, rowIndex) => (
               <tr key={row.id} className={`${rowIndex % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}>
-                <td className="py-3 px-4 rounded-l-lg font-medium text-gray-700 max-w-[200px] break-words whitespace-normal">
+                <td key="row-label" className="py-3 px-4 rounded-l-lg font-medium text-gray-700 max-w-[200px] break-words whitespace-normal">
                   {row.text || <span className="text-gray-300 italic">行</span>}
                 </td>
                 {question.gridCols.map((col, colIndex) => {
                   const isChecked = question.gridInputType === 'radio' 
-                    ? gridAnswer[row.id] === col.id 
-                    : (Array.isArray(gridAnswer[row.id]) ? gridAnswer[row.id] : []).includes(col.id);
+                    ? gridAnswer[row.text] === col.text 
+                    : (Array.isArray(gridAnswer[row.text]) ? gridAnswer[row.text] : []).includes(col.text);
 
                   return (
                     <td key={col.id} className={`py-3 px-4 text-center ${colIndex === question.gridCols.length - 1 ? 'rounded-r-lg' : ''}`}>
@@ -278,7 +278,7 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
                             type={question.gridInputType === 'radio' ? 'radio' : 'checkbox'} 
                             name={`grid-${question.id}-${row.id}`}
                             checked={isChecked}
-                            onChange={() => handleGridChange(row.id, col.id)}
+                            onChange={() => handleGridChange(row.text, col.text)}
                             className="peer sr-only"
                           />
                           <div className={`w-5 h-5 border-2 border-gray-300 peer-checked:border-blue-600 peer-checked:bg-blue-600 transition-colors ${question.gridInputType === 'radio' ? 'rounded-full' : 'rounded'}`} />

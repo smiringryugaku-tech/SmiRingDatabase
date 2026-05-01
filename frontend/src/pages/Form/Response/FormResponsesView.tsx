@@ -34,7 +34,19 @@ export default function FormResponsesView({ formId }: { formId: string }) {
         if (formRes.ok) {
           const formData = await formRes.json();
           setIsAnonymous(formData.allow_anonymous ?? false);
-          setQuestions(formData.questions ?? []);
+          const mappedQuestions = (formData.questions ?? []).map((q: any) => ({
+            ...q,
+            options: Array.isArray(q.options) 
+              ? q.options.map((c: any) => typeof c === 'string' ? { id: crypto.randomUUID(), text: c } : c)
+              : [],
+            gridRows: Array.isArray(q.gridRows)
+              ? q.gridRows.map((r: any) => typeof r === 'string' ? { id: crypto.randomUUID(), text: r } : r)
+              : [],
+            gridCols: Array.isArray(q.gridCols)
+              ? q.gridCols.map((c: any) => typeof c === 'string' ? { id: crypto.randomUUID(), text: c } : c)
+              : []
+          }));
+          setQuestions(mappedQuestions);
         }
 
         // 2. 回答一覧を取得（content付き、submitted_at ascending）

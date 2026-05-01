@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom'; 
 import { supabase } from '../../lib/supabase';
 import BasicInfoPage from './BasicInfoTab';
@@ -54,7 +54,7 @@ export default function ProfilePage() {
     ? profileData.avatar_link 
     : '/assets/images/profile_photo_empty.png';
 
-  const dummyGallery = Array.from({ length: 9 }).map((_, i) => `/assets/images/photo_empty.png`);
+  const dummyGallery = Array.from({ length: 9 }).map((_, __) => `/assets/images/photo_empty.png`);
 
   if (isLoading) {
     return <div className="flex h-full items-center justify-center text-gray-500">Loading...</div>;
@@ -102,7 +102,7 @@ export default function ProfilePage() {
           {/* 🌟 スマホ：横スクロール (flex overflow-x-auto)、PC：グリッド (md:grid md:grid-cols-3) */}
           {/* スクロールバーを見えなくする隠しクラスを付与 */}
           <div className="flex overflow-x-auto md:grid md:grid-cols-3 gap-2 pb-2 md:pb-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            {dummyGallery.map((img, index) => (
+            {dummyGallery.map((_, index) => (
               <div 
                 key={index} 
                 // 🌟 横スクロール時に写真が潰れないように flex-shrink-0 と固定幅(w-24)を指定
