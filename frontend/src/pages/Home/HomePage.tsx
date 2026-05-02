@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import HomeSearchBar from '../Search/SearchBar';
 import { 
-  Search, 
   Users, 
   Image as ImageIcon, 
   FilePlus, 
