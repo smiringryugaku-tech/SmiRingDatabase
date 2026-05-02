@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom'; // React Routerの場合
 import { supabase } from '../../../lib/supabase'; // Supabaseクライアント
+import { API_BASE_URL } from '../../../config';
 
 export default function FormListPage() {
   const navigate = useNavigate();
@@ -24,7 +25,7 @@ export default function FormListPage() {
         if (!token) return;
 
         // 2. バックエンドAPIを叩く
-        const response = await fetch('http://localhost:3000/api/my-forms', {
+        const response = await fetch(`${API_BASE_URL}/api/my-forms`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 

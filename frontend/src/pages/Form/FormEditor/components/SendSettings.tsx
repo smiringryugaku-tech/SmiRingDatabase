@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, Send, Search, Users, Square, X, Settings, ChevronDown } from 'lucide-react';
 import { WorldLocations } from '../../../../lib/timezones';
 import { supabase } from '../../../../lib/supabase';
+import { API_BASE_URL } from '../../../../config';
 
 type Member = { id: string; name_english: string; role?: string; avatar_link?: string; };
 
@@ -12,13 +13,17 @@ type Props = {
     dueDate: string, 
     dueTime: string,
     isAnonymous: boolean, 
-    timezone: string
+    timezone: string,
+    allowMultipleResponses: boolean,
+    allowEditResponses: boolean
   }) => void;
   initialTimezone?: string;
   isPublished?: boolean;
   initialAssignedUsers?: string[];
   initialDueDate?: string;
   initialIsAnonymous?: boolean;
+  initialAllowMultipleResponses?: boolean;
+  initialAllowEditResponses?: boolean;
 };
 
 export default function SendSettings({ 
@@ -27,12 +32,16 @@ export default function SendSettings({
   initialAssignedUsers = [], 
   initialDueDate = '', 
   initialIsAnonymous = false,
-  initialTimezone = 'Asia/Tokyo'
+  initialTimezone = 'Asia/Tokyo',
+  initialAllowMultipleResponses = false,
+  initialAllowEditResponses = true
 }: Props) {
   const [members, setMembers] = useState<Member[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>(initialAssignedUsers);
   const [isAnonymous, setIsAnonymous] = useState(initialIsAnonymous);
+  const [allowMultipleResponses, setAllowMultipleResponses] = useState(initialAllowMultipleResponses);
+  const [allowEditResponses, setAllowEditResponses] = useState(initialAllowEditResponses);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTimezone, setSelectedTimezone] = useState('Asia/Tokyo');
   const [dueDate, setDueDate] = useState(''); // yyyy-MM-dd
@@ -42,7 +51,7 @@ export default function SendSettings({
   useEffect(() => {
     const fetchMembers = async () => {
       try {
-        const response = await fetch('http://localhost:3000/api/basic_profile_info');
+        const response = await fetch(`${API_BASE_URL}/api/basic_profile_info`);
         if (response.ok) setMembers(await response.json());
       } catch (error) {
         console.error(error);
@@ -57,7 +66,7 @@ export default function SendSettings({
     const fetchMyTimezone = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const response = await fetch('http://localhost:3000/api/basic_profile_info/me', {
+      const response = await fetch(`${API_BASE_URL}/api/basic_profile_info/me`, {
         headers: { 'Authorization': `Bearer ${session.access_token}` }
       });
       if (response.ok) {
@@ -113,7 +122,10 @@ export default function SendSettings({
     dueDate !== initialDueDate ||
     selectedTimezone !== initialTimezone ||
     // 匿名設定が変わったか
-    isAnonymous !== initialIsAnonymous;
+    isAnonymous !== initialIsAnonymous ||
+    // 複数回答・編集許可が変わったか
+    allowMultipleResponses !== initialAllowMultipleResponses ||
+    allowEditResponses !== initialAllowEditResponses;
 
   const isButtonDisabled = isPublished ? !hasChanges : selectedUserIds.length === 0;
 
@@ -241,12 +253,35 @@ export default function SendSettings({
           )}
         </div>
         
-        <label className="flex items-center gap-3 cursor-pointer p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors group">
-          <input type="checkbox" checked={isAnonymous} onChange={(e) => setIsAnonymous(e.target.checked)} className="w-5 h-5 accent-blue-600" />
+        <label className="flex items-start gap-3 cursor-pointer p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors group">
+          <input type="checkbox" checked={isAnonymous} onChange={(e) => setIsAnonymous(e.target.checked)} className="w-5 h-5 accent-blue-600 mt-0.5 flex-shrink-0" />
           
-          <div>
-            <span className="block text-sm font-bold text-gray-700 group-hover:text-blue-900 transition-colors">匿名回答を許可する</span>
-            <span className="block text-xs text-gray-500 mt-0.5">誰が回答したか分からなくなります</span>
+          <div className="flex-1">
+            <span className="block text-sm font-bold text-gray-700 group-hover:text-blue-900 transition-colors">匿名回答に設定する</span>
+            <span className="block text-xs text-gray-500 mt-0.5">このフォームは匿名フォームとして設定されます。全ての回答者が匿名になります。</span>
+            {isAnonymous && (
+              <span className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-gray-800 text-white text-[10px] font-bold rounded-full">
+                🕶 匿名フォーム
+              </span>
+            )}
+          </div>
+        </label>
+
+        {/* 🌟 複数回答の許可設定 */}
+        <label className="flex items-start gap-3 cursor-pointer p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors group">
+          <input type="checkbox" checked={allowMultipleResponses} onChange={(e) => setAllowMultipleResponses(e.target.checked)} className="w-5 h-5 accent-blue-600 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <span className="block text-sm font-bold text-gray-700 group-hover:text-blue-900 transition-colors">複数回答を許可する</span>
+            <span className="block text-xs text-gray-500 mt-0.5">同じユーザーが何度も新しく回答できるようになります。</span>
+          </div>
+        </label>
+
+        {/* 🌟 編集の許可設定 */}
+        <label className="flex items-start gap-3 cursor-pointer p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors group">
+          <input type="checkbox" checked={allowEditResponses} onChange={(e) => setAllowEditResponses(e.target.checked)} className="w-5 h-5 accent-blue-600 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <span className="block text-sm font-bold text-gray-700 group-hover:text-blue-900 transition-colors">送信後の編集を許可する</span>
+            <span className="block text-xs text-gray-500 mt-0.5">ユーザーは一度送信した自分の回答を後から修正できるようになります。</span>
           </div>
         </label>
       </div>
@@ -262,7 +297,9 @@ export default function SendSettings({
             dueDate, 
             dueTime,
             isAnonymous, 
-            timezone: selectedTimezone 
+            timezone: selectedTimezone,
+            allowMultipleResponses,
+            allowEditResponses
           })}
             disabled={isButtonDisabled}
             className={`flex-[2] text-white py-3.5 rounded-xl font-bold shadow-md transition-all transform hover:scale-[1.02] flex justify-center items-center gap-2 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed ${isPublished ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}

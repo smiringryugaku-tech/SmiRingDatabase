@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../../config';
 
 // ==========================================
 // 💀 新しい縦型カード用スケルトン
@@ -45,15 +46,36 @@ export default function MembersPage() {
   useEffect(() => {
     const fetchMembers = async () => {
       try {
-        const response = await fetch('http://localhost:3000/api/basic_profile_info');
+        const response = await fetch(`${API_BASE_URL}/api/basic_profile_info`);
         const data = await response.json();
         setMembers(data);
 
-        // 🌟 取得したデータから、大学と専攻の重複のないリストを作る
-        const schools = Array.from(new Set(data.map((m: any) => m.current_school).filter(Boolean))) as string[];
-        const majors = Array.from(new Set(data.map((m: any) => m.majors).filter(Boolean))) as string[];
-        setAvailableSchools(schools);
-        setAvailableMajors(majors);
+        // 🌟 大学の出現回数をカウントして、多い順にソート
+        const schoolCounts = data.reduce((acc: any, m: any) => {
+          if (m.current_school) {
+            acc[m.current_school] = (acc[m.current_school] || 0) + 1;
+          }
+          return acc;
+        }, {});
+
+        const sortedSchools = Object.keys(schoolCounts).sort((a, b) => schoolCounts[b] - schoolCounts[a]);
+        setAvailableSchools(sortedSchools);
+
+        // 🌟 専攻の出現回数をカウントして、多い順にソート（配列対応）
+        const majorCounts = data.reduce((acc: any, m: any) => {
+          if (!m.majors) return acc;
+          
+          // APIのデータが配列 ['CS', 'Math'] でも、文字列 'CS' でも処理できるように正規化
+          const majorArray = Array.isArray(m.majors) ? m.majors : [m.majors];
+          
+          majorArray.forEach((major: string) => {
+            acc[major] = (acc[major] || 0) + 1;
+          });
+          return acc;
+        }, {});
+
+        const sortedMajors = Object.keys(majorCounts).sort((a, b) => majorCounts[b] - majorCounts[a]);
+        setAvailableMajors(sortedMajors);
 
       } catch (error) {
         console.error('メンバー取得エラー:', error);
@@ -74,8 +96,16 @@ export default function MembersPage() {
     // 2. 大学の判定（何も選ばれていなければ全てOK）
     const matchesSchool = selectedSchools.length === 0 || selectedSchools.includes(member.current_school);
 
-    // 3. 専攻の判定
-    const matchesMajor = selectedMajors.length === 0 || selectedMajors.includes(member.majors);
+    // 3. 専攻の判定（🌟 配列と文字列の両方に対応）
+    const matchesMajor = selectedMajors.length === 0 || (
+      member.majors && (
+        Array.isArray(member.majors)
+          // 配列の場合：持っている専攻のうち、どれか1つでも選択リスト(selectedMajors)に含まれていればOK
+          ? member.majors.some((major: string) => selectedMajors.includes(major))
+          // 文字列の場合：今まで通りの判定
+          : selectedMajors.includes(member.majors)
+      )
+    );
 
     return matchesSearch && matchesSchool && matchesMajor;
   });

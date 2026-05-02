@@ -1,6 +1,13 @@
 import React from 'react';
 import type { QuestionData } from '../../FormEditor/FormEditorPage';
 import RichTextEditor, {richTextStyles} from '../../../../components/ui/RichTextEditor';
+import * as Icons from 'lucide-react';
+
+const LucideIcon = ({ name, className }: { name: string, className?: string }) => {
+  const Icon = (Icons as any)[name];
+  if (!Icon) return null;
+  return <Icon className={className} />;
+};
 
 type Props = {
   question: QuestionData;
@@ -21,15 +28,18 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
             <input 
               type="radio" 
               name={`q-${question.id}`} 
-              value={opt.id}
-              checked={answer === opt.id}
-              onChange={() => onChange(opt.id)}
+              value={opt.text}
+              checked={answer === opt.text}
+              onChange={() => onChange(opt.text)}
               className="peer sr-only" 
             />
             <div className="w-5 h-5 rounded-full border-2 border-gray-300 peer-checked:border-blue-600 peer-checked:bg-blue-600 transition-colors" />
             <div className="absolute w-2 h-2 bg-white rounded-full opacity-0 peer-checked:opacity-100 transition-opacity" />
           </div>
-          <span className="text-gray-700 group-hover:text-blue-900 transition-colors">{opt.text}</span>
+          <span className="text-gray-700 group-hover:text-blue-900 transition-colors flex items-center gap-2">
+            {opt.lucideIcon && <LucideIcon name={opt.lucideIcon} className="w-4 h-4 text-blue-500" />}
+            {opt.text}
+          </span>
         </label>
       ))}
     </div>
@@ -37,88 +47,177 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
 
   const renderCheckbox = () => {
     // チェックボックスは複数選択なので、配列で管理します
-    const currentAnswers: number[] = Array.isArray(answer) ? answer : [];
+    const currentAnswers: string[] = Array.isArray(answer) ? answer : [];
+    const validation = question.checkboxValidation;
     
-    const handleToggle = (id: number) => {
-      if (currentAnswers.includes(id)) {
-        onChange(currentAnswers.filter(a => a !== id));
+    const handleToggle = (text: string) => {
+      let newAnswers = [];
+      if (currentAnswers.includes(text)) {
+        newAnswers = currentAnswers.filter(a => a !== text);
       } else {
-        onChange([...currentAnswers, id]);
+        newAnswers = [...currentAnswers, text];
       }
+      onChange(newAnswers);
     };
+
+    let errorMsg = null;
+    if (validation?.enabled) {
+      if (validation.min && currentAnswers.length < Number(validation.min)) {
+        errorMsg = validation.errorMsg || `最低 ${validation.min} 個選択してください`;
+      }
+      if (validation.max && currentAnswers.length > Number(validation.max)) {
+        errorMsg = validation.errorMsg || `最大 ${validation.max} 個まで選択できます`;
+      }
+    }
 
     return (
       <div className="space-y-3 pt-2">
-        {question.options.map((opt) => (
-          <label key={opt.id} className="flex items-center gap-3 cursor-pointer group">
-            <div className="relative flex items-center justify-center">
-              <input 
-                type="checkbox" 
-                checked={currentAnswers.includes(opt.id)}
-                onChange={() => handleToggle(opt.id)}
-                className="peer sr-only" 
-              />
-              <div className="w-5 h-5 rounded border-2 border-gray-300 peer-checked:border-blue-600 peer-checked:bg-blue-600 transition-colors" />
-              <svg className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <span className="text-gray-700 group-hover:text-blue-900 transition-colors">{opt.text}</span>
-          </label>
-        ))}
+        {question.options.map((opt) => {
+          const isChecked = currentAnswers.includes(opt.text);
+          const isDisabled = validation?.enabled && validation.max && !isChecked && currentAnswers.length >= Number(validation.max);
+
+          return (
+            <label key={opt.id} className={`flex items-center gap-3 group ${isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+              <div className="relative flex items-center justify-center">
+                <input 
+                  type="checkbox" 
+                  checked={isChecked}
+                  onChange={() => { if (!isDisabled) handleToggle(opt.text); }}
+                  disabled={isDisabled as boolean}
+                  className="peer sr-only" 
+                />
+                <div className={`w-5 h-5 rounded border-2 ${isDisabled ? 'border-gray-200' : 'border-gray-300 peer-checked:border-blue-600 peer-checked:bg-blue-600'} transition-colors`} />
+                <svg className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <span className={`text-gray-700 transition-colors flex items-center gap-2 ${!isDisabled && 'group-hover:text-blue-900'}`}>
+                {opt.lucideIcon && <LucideIcon name={opt.lucideIcon} className="w-4 h-4 text-blue-500" />}
+                {opt.text}
+              </span>
+            </label>
+          );
+        })}
+        {errorMsg && (
+          <p className="text-red-500 text-xs mt-2 flex items-center gap-1 font-bold animate-in fade-in slide-in-from-top-1">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            {errorMsg}
+          </p>
+        )}
       </div>
     );
   };
 
   const renderShortText = () => {
-    const val = answer || '';
+    const isMultiple = question.shortTextMultiple?.enabled;
+    const listStyle = question.shortTextMultiple?.style || 'none';
+    
+    // 単一入力の場合は文字列、複数入力の場合は文字列の配列として扱う
+    const valArray: string[] = isMultiple ? (Array.isArray(answer) ? answer : (answer ? [answer] : [''])) : [answer || ''];
+    
     const validation = question.shortTextValidation;
-    let errorMsg = null;
-
-    // バリデーションロジック（入力がある時だけチェックする）
-    if (validation?.enabled && val) {
-      if (validation.type === 'number') {
-        const num = Number(val);
-        if (isNaN(num)) errorMsg = '数値を入力してください';
-        else if (validation.condition === 'between') {
-          const min = Math.min(Number(validation.value1), Number(validation.value2));
-          const max = Math.max(Number(validation.value1), Number(validation.value2));
-          if (num < min || num > max) {
-            errorMsg = validation.errorMsg || `${min}から${max}の間で入力してください`;
+    let errorMsg: string | null = null;
+    
+    // 各行についてバリデーションチェックを行う
+    if (validation?.enabled) {
+      for (const val of valArray) {
+        if (!val) continue; // 空の場合はスキップ（必須チェックは別）
+        
+        if (validation.type === 'number') {
+          const num = Number(val);
+          if (isNaN(num)) { errorMsg = '数値を入力してください'; break; }
+          else if (validation.condition === 'between') {
+            const min = Math.min(Number(validation.value1), Number(validation.value2));
+            const max = Math.max(Number(validation.value1), Number(validation.value2));
+            if (num < min || num > max) { errorMsg = validation.errorMsg || `${min}から${max}の間で入力してください`; break; }
           }
-        }
-        else if (validation.condition === 'greater' && num <= Number(validation.value1)) errorMsg = validation.errorMsg || `${validation.value1}より大きい数値を入力してください`;
-        else if (validation.condition === 'less' && num >= Number(validation.value1)) errorMsg = validation.errorMsg || `${validation.value1}より小さい数値を入力してください`;
-      } else if (validation.type === 'text') {
-        if (validation.condition === 'contains' && !val.includes(validation.value1)) errorMsg = validation.errorMsg || `「${validation.value1}」を含めてください`;
-        if (validation.condition === 'not_contains' && val.includes(validation.value1)) errorMsg = validation.errorMsg || `「${validation.value1}」を含めないでください`;
-        if (validation.condition === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) errorMsg = validation.errorMsg || '有効なメールアドレスを入力してください';
-        if (validation.condition === 'url' && !/^https?:\/\/.*/.test(val)) errorMsg = validation.errorMsg || '有効なURL(http/https)を入力してください';
-      } else if (validation.type === 'regex') {
-        try {
-          const regex = new RegExp(validation.value1);
-          const isMatch = regex.test(val);
-          if (validation.condition === 'match' && !isMatch) errorMsg = validation.errorMsg || '指定された形式で入力してください: ' + validation.value1;
-          if (validation.condition === 'not_match' && isMatch) errorMsg = validation.errorMsg || '指定された形式は使用できません: ' + validation.value1;;
-        } catch (e) {
-           // 正規表現が壊れている場合は無視
+          else if (validation.condition === 'greater' && num <= Number(validation.value1)) { errorMsg = validation.errorMsg || `${validation.value1}より大きい数値を入力してください`; break; }
+          else if (validation.condition === 'less' && num >= Number(validation.value1)) { errorMsg = validation.errorMsg || `${validation.value1}より小さい数値を入力してください`; break; }
+        } else if (validation.type === 'text') {
+          if (validation.condition === 'contains' && !val.includes(validation.value1)) { errorMsg = validation.errorMsg || `「${validation.value1}」を含めてください`; break; }
+          if (validation.condition === 'not_contains' && val.includes(validation.value1)) { errorMsg = validation.errorMsg || `「${validation.value1}」を含めないでください`; break; }
+          if (validation.condition === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) { errorMsg = validation.errorMsg || '有効なメールアドレスを入力してください'; break; }
+          if (validation.condition === 'url' && !/^https?:\/\/.*/.test(val)) { errorMsg = validation.errorMsg || '有効なURL(http/https)を入力してください'; break; }
+        } else if (validation.type === 'regex') {
+          try {
+            const regex = new RegExp(validation.value1);
+            const isMatch = regex.test(val);
+            if (validation.condition === 'match' && !isMatch) { errorMsg = validation.errorMsg || '指定された形式で入力してください: ' + validation.value1; break; }
+            if (validation.condition === 'not_match' && isMatch) { errorMsg = validation.errorMsg || '指定された形式は使用できません: ' + validation.value1; break; }
+          } catch (e) {
+             // 正規表現が壊れている場合は無視
+          }
         }
       }
     }
 
     const isDate = validation?.enabled && validation.type === 'date';
 
+    const handleArrayChange = (index: number, newValue: string) => {
+      const newArray = [...valArray];
+      newArray[index] = newValue;
+      onChange(newArray);
+    };
+
+    const handleAddRow = () => {
+      onChange([...valArray, '']);
+    };
+
+    const handleRemoveRow = (index: number) => {
+      const newArray = valArray.filter((_, i) => i !== index);
+      onChange(newArray.length > 0 ? newArray : ['']);
+    };
+
+    const renderPrefix = (index: number) => {
+      if (!isMultiple) return null;
+      if (listStyle === 'bullet') return <span className="text-gray-800 mr-2 font-bold">•</span>;
+      if (listStyle === 'number') return <span className="text-gray-400 mr-2 font-bold">{index + 1}.</span>;
+      if (listStyle === 'arrow') return null;
+      return null;
+    };
+
     return (
-      <div className="pt-2">
-        <input 
-          type={isDate ? "date" : "text"} 
-          value={val}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={isDate ? "" : "回答を入力"} 
-          className={`w-full md:w-2/3 border-b-2 py-2 outline-none transition-colors bg-transparent
-            ${errorMsg ? 'border-red-500 focus:border-red-600' : 'border-gray-200 focus:border-blue-600'}
-          `}
-        />
+      <div className="pt-2 space-y-3">
+        {valArray.map((val, index) => (
+          <React.Fragment key={index}>
+            {index > 0 && isMultiple && listStyle === 'arrow' && (
+              <div className="flex justify-start pl-4 opacity-50 py-1">
+                <Icons.ArrowDown className="text-gray-800 font-bold text-lg" />
+              </div>
+            )}
+            <div className="flex items-center group/input">
+            {renderPrefix(index)}
+            <input 
+              type={isDate ? "date" : "text"} 
+              value={val}
+              onChange={(e) => isMultiple ? handleArrayChange(index, e.target.value) : onChange(e.target.value)}
+              placeholder={isDate ? "" : "回答を入力"} 
+              className={`flex-1 md:w-2/3 border-b-2 py-2 outline-none transition-colors bg-transparent
+                ${errorMsg ? 'border-red-500 focus:border-red-600' : 'border-gray-200 focus:border-blue-600'}
+              `}
+            />
+            {isMultiple && valArray.length > 1 && (
+              <button 
+                onClick={() => handleRemoveRow(index)}
+                className="ml-3 text-gray-300 hover:text-red-500 opacity-0 group-hover/input:opacity-100 transition-opacity"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          </React.Fragment>
+        ))}
+        
+        {isMultiple && (
+          <button 
+            onClick={handleAddRow}
+            className="flex items-center gap-1 mt-2 text-sm text-blue-500 hover:text-blue-700 font-bold transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+            追加
+          </button>
+        )}
+
         {/* エラーメッセージの表示 */}
         {errorMsg && (
           <p className="text-red-500 text-xs mt-2 flex items-center gap-1 font-bold animate-in fade-in slide-in-from-top-1">
@@ -131,18 +230,18 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
   };
 
   const renderGrid = () => {
-    // 答えの形式: { rowId1: colId1, rowId2: [colId1, colId2] }
+    // 答えの形式: { "Row1 text": "Col1 text", "Row2 text": ["Col1 text", "Col2 text"] }
     const gridAnswer = answer || {};
 
-    const handleGridChange = (rowId: number, colId: number) => {
+    const handleGridChange = (rowText: string, colText: string) => {
       if (question.gridInputType === 'radio') {
-        onChange({ ...gridAnswer, [rowId]: colId });
+        onChange({ ...gridAnswer, [rowText]: colText });
       } else {
-        const rowAnswers = Array.isArray(gridAnswer[rowId]) ? gridAnswer[rowId] : [];
-        if (rowAnswers.includes(colId)) {
-          onChange({ ...gridAnswer, [rowId]: rowAnswers.filter((id: number) => id !== colId) });
+        const rowAnswers = Array.isArray(gridAnswer[rowText]) ? gridAnswer[rowText] : [];
+        if (rowAnswers.includes(colText)) {
+          onChange({ ...gridAnswer, [rowText]: rowAnswers.filter((t: string) => t !== colText) });
         } else {
-          onChange({ ...gridAnswer, [rowId]: [...rowAnswers, colId] });
+          onChange({ ...gridAnswer, [rowText]: [...rowAnswers, colText] });
         }
       }
     };
@@ -152,7 +251,7 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
         <table className="text-sm text-left min-w-max border-separate border-spacing-y-2 mx-auto">
           <thead>
             <tr>
-              <th className="pb-2"></th>
+              <th key="empty-header" className="pb-2"></th>
               {question.gridCols.map(col => (
                 <th key={col.id} className="pb-2 px-4 text-center font-bold text-gray-600 w-24">
                   {col.text || <span className="text-gray-300 italic">列</span>}
@@ -163,13 +262,13 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
           <tbody>
             {question.gridRows.map((row, rowIndex) => (
               <tr key={row.id} className={`${rowIndex % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}>
-                <td className="py-3 px-4 rounded-l-lg font-medium text-gray-700 max-w-[200px] break-words whitespace-normal">
+                <td key="row-label" className="py-3 px-4 rounded-l-lg font-medium text-gray-700 max-w-[200px] break-words whitespace-normal">
                   {row.text || <span className="text-gray-300 italic">行</span>}
                 </td>
                 {question.gridCols.map((col, colIndex) => {
                   const isChecked = question.gridInputType === 'radio' 
-                    ? gridAnswer[row.id] === col.id 
-                    : (Array.isArray(gridAnswer[row.id]) ? gridAnswer[row.id] : []).includes(col.id);
+                    ? gridAnswer[row.text] === col.text 
+                    : (Array.isArray(gridAnswer[row.text]) ? gridAnswer[row.text] : []).includes(col.text);
 
                   return (
                     <td key={col.id} className={`py-3 px-4 text-center ${colIndex === question.gridCols.length - 1 ? 'rounded-r-lg' : ''}`}>
@@ -179,7 +278,7 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
                             type={question.gridInputType === 'radio' ? 'radio' : 'checkbox'} 
                             name={`grid-${question.id}-${row.id}`}
                             checked={isChecked}
-                            onChange={() => handleGridChange(row.id, col.id)}
+                            onChange={() => handleGridChange(row.text, col.text)}
                             className="peer sr-only"
                           />
                           <div className={`w-5 h-5 border-2 border-gray-300 peer-checked:border-blue-600 peer-checked:bg-blue-600 transition-colors ${question.gridInputType === 'radio' ? 'rounded-full' : 'rounded'}`} />

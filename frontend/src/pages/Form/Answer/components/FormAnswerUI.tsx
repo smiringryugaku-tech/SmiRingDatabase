@@ -1,11 +1,15 @@
-// src/components/PreviewAndSending/FormAnswerUI.tsx
-
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { QuestionData } from '../../FormEditor/FormEditorPage';
 import { richTextStyles } from '../../../../components/ui/RichTextEditor';
 import AnswerBox from './AnswerBox';
-import { Send, ExternalLink, CloudRain } from 'lucide-react'; // CloudRain などは適宜
+import { Send, ExternalLink, User } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
+
+type ReadonlyInfo = {
+  displayName: string;
+  submittedAt: string;
+  avatarLink?: string | null;
+};
 
 type Props = {
   title: string;
@@ -13,28 +17,22 @@ type Props = {
   questions: QuestionData[];
   answers: Record<string, any>;
   onAnswerChange: (questionId: string, value: any) => void;
-  onSubmit: (turnstileToken: string) => void;
-  mode: 'preview' | 'live';
+  onSubmit?: (turnstileToken: string) => void;
+  mode: 'preview' | 'live' | 'readonly';
   isLoading?: boolean;
   onOpenFullScreen?: () => void;
-  onClearAnswers: () => void;
-  isSaving?: boolean;             // 🌟 追加
-  lastSavedTime?: Date | null;    // 🌟 追加
+  onClearAnswers?: () => void;
+  isSaving?: boolean;
+  lastSavedTime?: Date | null;
+  readonlyInfo?: ReadonlyInfo;
 };
 
 export default function FormAnswerUI({ 
-  title, 
-  description, 
-  questions, 
-  answers, 
-  onAnswerChange, 
-  onSubmit, 
-  mode,
-  isLoading = false,
-  onOpenFullScreen,
-  onClearAnswers,
-  isSaving = false,               // 🌟 追加
-  lastSavedTime = null,           // 🌟 追加
+  title, description, questions, answers,
+  onAnswerChange, onSubmit, mode, isLoading = false,
+  onOpenFullScreen, onClearAnswers,
+  isSaving = false, lastSavedTime = null,
+  readonlyInfo,
 }: Props) {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -43,22 +41,12 @@ export default function FormAnswerUI({
 
   const handleValidateAndSubmit = () => {
     const newErrors: Record<string, string> = {};
-
     questions.forEach((q) => {
       const ans = answers[q.id];
       const isEmpty = ans === undefined || ans === null || ans === '' || (Array.isArray(ans) && ans.length === 0);
-
-      // 1. 必須チェック
-      if (q.isRequired && isEmpty) {
-        newErrors[q.id] = 'この質問は必須項目です';
-        return; 
-      }
-
-      // 2. 短文入力のカスタムフォーマットチェック
+      if (q.isRequired && isEmpty) { newErrors[q.id] = 'この質問は必須項目です'; return; }
       if (!isEmpty && q.type === 'short_text' && q.shortTextValidation?.enabled) {
-        const val = String(ans);
-        const v = q.shortTextValidation;
-        
+        const val = String(ans); const v = q.shortTextValidation;
         if (v.type === 'number') {
           const num = Number(val);
           if (isNaN(num)) newErrors[q.id] = '数値を入力してください';
@@ -79,28 +67,21 @@ export default function FormAnswerUI({
         }
       }
     });
-
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       setTimeout(() => {
         const firstErrorId = Object.keys(newErrors)[0];
-        const element = document.getElementById(`question-${firstErrorId}`);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }, 100); 
+        document.getElementById(`question-${firstErrorId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
       return;
     }
-
     if (!turnstileToken) {
       setTurnstileError(true);
       document.getElementById('turnstile-widget')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
-
-    setErrors({});
-    setTurnstileError(false);
-    onSubmit(turnstileToken);
+    setErrors({}); setTurnstileError(false);
+    onSubmit?.(turnstileToken);
   };
   
   if (isLoading) {
@@ -114,107 +95,104 @@ export default function FormAnswerUI({
 
   return (
     <div className="w-full flex flex-col items-center relative pb-10">
+
+      {/* ── モードバナー ── */}
       {mode === 'preview' && (
         <div className="w-full bg-orange-50 border-b border-orange-100 text-orange-700 px-4 py-2 flex items-center sticky top-0 z-20">
-          <div className="w-8" /> 
-          <span className="flex-1 text-center text-xs font-bold">
-            👀 これはプレビューです。回答は保存されません。
-          </span>
+          <div className="w-8" />
+          <span className="flex-1 text-center text-xs font-bold">👀 これはプレビューです。回答は保存されません。</span>
           {onOpenFullScreen && (
-            <button 
-              onClick={onOpenFullScreen}
-              className="p-1 hover:bg-orange-200 rounded-md transition-colors"
-              title="全画面でプレビューを開く"
-            >
+            <button onClick={onOpenFullScreen} className="p-1 hover:bg-orange-200 rounded-md transition-colors" title="全画面でプレビューを開く">
               <ExternalLink className="w-4 h-4" />
             </button>
           )}
         </div>
       )}
 
+      {mode === 'readonly' && readonlyInfo && (
+        <div className="w-full bg-gray-100 border-b border-gray-200 px-4 py-3 flex items-center gap-3 sticky top-0 z-20">
+          <div className="w-8 h-8 rounded-full bg-gray-300 overflow-hidden flex-shrink-0 flex items-center justify-center">
+            {readonlyInfo.avatarLink
+              ? <img src={readonlyInfo.avatarLink} className="w-full h-full object-cover" alt="" />
+              : <User className="w-4 h-4 text-gray-500" />
+            }
+          </div>
+          <div>
+            <p className="text-sm font-bold text-gray-800">{readonlyInfo.displayName} の回答</p>
+            <p className="text-xs text-gray-500">
+              {new Date(readonlyInfo.submittedAt).toLocaleString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 提出
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-3xl py-10 px-4 md:px-8 space-y-6">
-      <div className="border-t-[10px] border-blue-700 rounded-xl bg-white p-8 shadow-sm border-t-8 border-blue-200">
+        {/* タイトルカード */}
+        <div className="border-t-[10px] border-blue-700 rounded-xl bg-white p-8 shadow-sm">
           <h1 className="text-3xl font-bold text-gray-900 mb-4">{title || '無題のフォーム'}</h1>
           {description && (
-            <div 
-              className={richTextStyles}
-              dangerouslySetInnerHTML={{ __html: description }} 
-            />
+            <div className={richTextStyles} dangerouslySetInnerHTML={{ __html: description }} />
           )}
-
-          {/* 🌟 修正：必須項目と保存ステータスを同じ列に配置 */}
-          <div className="mt-6 flex items-center justify-between border-t border-gray-100 pt-4">
-            <div className="text-[11px] text-red-500 font-bold">* 必須項目</div>
-
-            {/* 保存ステータス（右端） */}
-            {mode !== 'preview' && (
+          {mode !== 'preview' && mode !== 'readonly' && (
+            <div className="mt-6 flex items-center justify-between border-t border-gray-100 pt-4">
+              <div className="text-[11px] text-red-500 font-bold">* 必須項目</div>
               <div className="text-[10px] md:text-xs font-bold text-gray-400">
                 {isSaving ? (
-                  <span className="flex items-center gap-1">
-                    <span className="animate-spin text-blue-500">⏳</span> 保存中...
-                  </span>
+                  <span className="flex items-center gap-1"><span className="animate-spin text-blue-500">⏳</span> 保存中...</span>
                 ) : lastSavedTime ? (
-                  <span className="text-green-600">
-                    ✓ {lastSavedTime.toLocaleTimeString()} に保存済み
-                  </span>
+                  <span className="text-green-600">✓ {lastSavedTime.toLocaleTimeString()} に保存済み</span>
                 ) : (
                   <span>自動保存が有効です</span>
                 )}
               </div>
-            )}
-          </div>
-        </div>
-
-        {questions.map((q) => (
-          <AnswerBox 
-            key={q.id} 
-            question={q} 
-            answer={answers[q.id]} 
-            onChange={(value) => {
-              onAnswerChange(q.id, value);
-              if (errors[q.id]) setErrors(prev => { const n = {...prev}; delete n[q.id]; return n; });
-            }} 
-            error={errors[q.id]}
-          />
-        ))}
-
-        <div id="turnstile-widget" className="pt-4 flex flex-col items-end">
-          <Turnstile 
-            siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY} 
-            onSuccess={(token) => {
-              setTurnstileToken(token);
-              setTurnstileError(false);
-            }}
-            options={{ theme: 'light' }}
-          />
-          {turnstileError && (
-            <span className="text-red-500 text-sm font-bold mt-2 animate-pulse">
-              Botでないことを確認してください
-            </span>
+            </div>
           )}
         </div>
 
-        {/* 🌟 修正：下部アクションエリアに保存ステータスを追加 */}
-        <div className="pt-6 flex flex-col md:flex-row justify-between items-center gap-6">
-          
-          <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
-            <button 
-              onClick={onClearAnswers}
-              className="text-sm text-gray-400 hover:text-gray-600 font-medium transition-colors"
-            >
-              回答をクリア
-            </button>
-          </div>
-          
-          <button 
-            onClick={handleValidateAndSubmit}
-            className="w-full md:w-auto bg-blue-600 text-white px-10 py-3.5 rounded-xl font-bold shadow-lg hover:bg-blue-700 hover:shadow-blue-200 transition-all transform active:scale-95 flex items-center justify-center gap-2"
-          >
-            <Send className="w-5 h-5" />
-            {mode === 'preview' ? '送信テスト' : '回答を送信'}
-          </button>
-
+        {/* 質問一覧 */}
+        <div className={mode === 'readonly' ? 'pointer-events-none' : ''}>
+          {questions.map((q) => (
+            <div key={q.id} className="mb-6">
+              <AnswerBox
+                question={q}
+                answer={answers[q.id]}
+                onChange={(value) => {
+                  onAnswerChange(q.id, value);
+                  if (errors[q.id]) setErrors(prev => { const n = {...prev}; delete n[q.id]; return n; });
+                }}
+                error={errors[q.id]}
+              />
+            </div>
+          ))}
         </div>
+
+        {/* Turnstile + 送信ボタン（live/previewのみ） */}
+        {mode !== 'readonly' && (
+          <>
+            <div id="turnstile-widget" className="pt-4 flex flex-col items-end">
+              <Turnstile
+                siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
+                onSuccess={(token) => { setTurnstileToken(token); setTurnstileError(false); }}
+                options={{ theme: 'light' }}
+              />
+              {turnstileError && (
+                <span className="text-red-500 text-sm font-bold mt-2 animate-pulse">Botでないことを確認してください</span>
+              )}
+            </div>
+            <div className="pt-6 flex flex-col md:flex-row justify-between items-center gap-6">
+              <button onClick={onClearAnswers} className="text-sm text-gray-400 hover:text-gray-600 font-medium transition-colors">
+                回答をクリア
+              </button>
+              <button
+                onClick={handleValidateAndSubmit}
+                className="w-full md:w-auto bg-blue-600 text-white px-10 py-3.5 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all transform active:scale-95 flex items-center justify-center gap-2"
+              >
+                <Send className="w-5 h-5" />
+                {mode === 'preview' ? '送信テスト' : '回答を送信'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
