@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { type Member, memberMatchesQuery, HighlightedText } from './SearchBar';
+import { API_BASE_URL } from '../../config';
 
 type FilterTab = 'all' | 'members';
 
@@ -16,7 +17,7 @@ export default function SearchPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/basic_profile_info')
+    fetch(`${API_BASE_URL}/api/basic_profile_info`)
       .then(res => res.json())
       .then(data => setMembers(data))
       .catch(err => console.error('メンバー取得エラー:', err))

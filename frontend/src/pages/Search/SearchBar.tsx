@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../../config';
 
 export type Member = {
   id: string;
@@ -64,7 +65,7 @@ export default function HomeSearchBar() {
   const wrapperRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/basic_profile_info')
+    fetch(`${API_BASE_URL}/api/basic_profile_info`)
       .then(res => res.json())
       .then(data => setMembers(data))
       .catch(() => {});
