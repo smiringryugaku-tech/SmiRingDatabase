@@ -6,8 +6,7 @@ import DetailInfoTab from './DetailInfoTab';
 import { API_BASE_URL } from '../../config';
 
 export default function ProfilePage() {
-  const { id } = useParams<{ id: string }>(); 
-  
+  const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<'basic' | 'detail'>('basic');
   const [profileData, setProfileData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);

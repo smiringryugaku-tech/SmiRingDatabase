@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import HomeSearchBar from '../Search/SearchBar';
 import { 
   Search, 
   Users, 
@@ -50,20 +51,9 @@ export default function HomePage() {
   );
 }
 
-function HomeSearchBar() {
-  return (
-    <div className="w-full max-w-2xl mx-auto mb-6 relative">
-      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-        <Search className="h-5 w-5 text-gray-400" />
-      </div>
-      <input
-        type="text"
-        className="w-full pl-11 pr-4 py-3 rounded-full border border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none shadow-sm transition-all text-sm"
-        placeholder="Search members, photos, forms..."
-      />
-    </div>
-  );
-}
+// ==========================================
+// サブコンポーネント群
+// ==========================================
 
 function HomeQuickActionButtons() {
   const navigate = useNavigate();
