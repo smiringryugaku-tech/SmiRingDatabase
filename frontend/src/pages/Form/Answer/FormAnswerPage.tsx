@@ -178,11 +178,13 @@ export default function FormAnswerPage() {
 
         const res = await fetch(`${API_BASE_URL}/api/forms/${id}/responses/save`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
           body: JSON.stringify({
             response_id: responseId,
             content: answers,
-            user_id: session.user.id
           })
         });
 
@@ -217,12 +219,14 @@ export default function FormAnswerPage() {
       
       const response = await fetch(`${API_BASE_URL}/api/forms/${id}/submit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
         body: JSON.stringify({
           response_id: responseId,
           answers,
           turnstileToken,
-          user_id: session?.user?.id || null, 
         })
       });
 

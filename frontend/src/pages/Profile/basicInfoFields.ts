@@ -135,11 +135,11 @@ export const BASIC_INFO_FIELDS: Record<string, QuestionData> = {
     title: 'Study Abroad Type',
     description: '',
     type: 'radio',
+    allowCustomAnswer: true,
     options: [
       { id: 1, text: "正規・学部留学" },
       { id: 2, text: "語学留学" },
-      { id: 3, text: "交換留学" },
-      { id: 4, text: "その他" }
+      { id: 3, text: "交換留学" }
     ],
     scale: { min: 1, max: 5, minLabel: '', maxLabel: '' },
     gridRows: [],
@@ -182,6 +182,7 @@ export const BASIC_INFO_FIELDS: Record<string, QuestionData> = {
     title: 'Grade Level',
     description: '',
     type: 'radio',
+    allowCustomAnswer: true,
     options: [
       { id: 1, text: "中学生以下" },
       { id: 2, text: "高校1年生" },
@@ -193,8 +194,7 @@ export const BASIC_INFO_FIELDS: Record<string, QuestionData> = {
       { id: 8, text: "大学4年生" },
       { id: 9, text: "大学5年生以上" },
       { id: 10, text: "大学院生" },
-      { id: 11, text: "既卒生・社会人" },
-      { id: 12, text: "その他" }
+      { id: 11, text: "既卒生・社会人" }
     ],
     scale: { min: 1, max: 5, minLabel: '', maxLabel: '' },
     gridRows: [],
@@ -293,6 +293,7 @@ export const BASIC_INFO_FIELDS: Record<string, QuestionData> = {
     title: 'Personality',
     description: '',
     type: 'checkbox',
+    allowCustomAnswer: true,
     options: [
       { id: 1, text: "相手から引き出すのが得意" },
       { id: 2, text: "相手に寄り添った表現、共感" },
@@ -323,6 +324,7 @@ export const BASIC_INFO_FIELDS: Record<string, QuestionData> = {
     title: 'Important Values',
     description: '',
     type: 'checkbox',
+    allowCustomAnswer: true,
     options: [
       { id: 1, text: "成長・向上心" },
       { id: 2, text: "自律・自立" },
@@ -358,6 +360,7 @@ export const BASIC_INFO_FIELDS: Record<string, QuestionData> = {
     title: 'Future Image',
     description: '',
     type: 'checkbox',
+    allowCustomAnswer: true,
     options: [
       { id: 1, text: "ポジティブマインド" },
       { id: 2, text: "カリスマ性" },
@@ -394,6 +397,7 @@ export const BASIC_INFO_FIELDS: Record<string, QuestionData> = {
     title: 'SmiRing Department',
     description: '',
     type: 'checkbox',
+    allowCustomAnswer: true,
     options: [
       { id: 1, text: "代表" },
       { id: 2, text: "副代表" },
@@ -409,7 +413,8 @@ export const BASIC_INFO_FIELDS: Record<string, QuestionData> = {
       { id: 12, text: "進学支援部署" },
       { id: 13, text: "コーポレート部署" },
       { id: 14, text: "Tech部署" },
-      { id: 15, text: "留学祭" }
+      { id: 15, text: "留学祭" },
+      { id: 16, text: "無所属" },
     ],
     scale: { min: 1, max: 5, minLabel: '', maxLabel: '' },
     gridRows: [],

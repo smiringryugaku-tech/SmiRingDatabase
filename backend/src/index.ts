@@ -381,11 +381,16 @@ app.post('/api/forms/:id/publish', async (req: Request, res: Response) => {
 // ==========================================
 app.post('/api/forms/:id/responses/save', async (req: Request, res: Response) => {
   const { id: formId } = req.params;
-  const { content, user_id, response_id } = req.body;
-
-  if (!user_id) return res.status(401).json({ error: 'ログインが必要です' });
+  const { content, response_id } = req.body;
 
   try {
+    // 🔐 JWT検証
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: '認証トークンがありません' });
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return res.status(401).json({ error: '認証に失敗しました' });
+    const user_id = user.id; // フロントエンドのIDを信用せず、トークンから取得
+
     let resultId = response_id;
 
     if (response_id) {
@@ -429,9 +434,15 @@ app.post('/api/forms/:id/responses/save', async (req: Request, res: Response) =>
 // ==========================================
 app.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
   const { id: formId } = req.params;
-  const { answers, turnstileToken, user_id } = req.body;
+  const { answers, turnstileToken } = req.body;
 
   try {
+    // 🔐 JWT検証
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: '認証トークンがありません' });
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return res.status(401).json({ error: '認証に失敗しました' });
+    const user_id = user.id; // フロントエンドのIDを信用せず、トークンから取得
     const verifyResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -726,9 +737,16 @@ app.post('/api/test-ai', async (req: Request, res: Response) => {
 // ==========================================
 app.post('/api/answers', async (req: Request, res: Response) => {
   try {
-    const { user_id, question_id, form_id, answer_data } = req.body;
+    // 🔐 JWT検証
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: '認証トークンがありません' });
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return res.status(401).json({ error: '認証に失敗しました' });
 
-    if (!user_id || !question_id || !answer_data) {
+    const { question_id, form_id, answer_data } = req.body;
+    const user_id = user.id; // フロントエンドのIDを信用せず、トークンから取得
+
+    if (!question_id || !answer_data) {
       return res.status(400).json({ error: '必須データが足りません' });
     }
 
@@ -879,5 +897,5 @@ ${contextText}
 // サーバー起動
 // ==========================================
 app.listen(port, () => {
-  console.log(`🚀 サーバーが起動しました: ${port}`);
+  console.log(`🚀 サーバーが起動しました: http://localhost:${port}`);
 });

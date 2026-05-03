@@ -42,6 +42,36 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
           </span>
         </label>
       ))}
+      
+      {question.allowCustomAnswer && (
+        <div className="flex items-center gap-3 mt-2">
+          <label className="flex items-center gap-3 cursor-pointer group">
+            <div className="relative flex items-center justify-center">
+              <input 
+                type="radio" 
+                name={`q-${question.id}`} 
+                checked={answer !== undefined && answer !== null && answer !== '' && !question.options.some(o => o.text === answer)}
+                onChange={() => onChange(' ')} 
+                className="peer sr-only" 
+              />
+              <div className="w-5 h-5 rounded-full border-2 border-gray-300 peer-checked:border-blue-600 peer-checked:bg-blue-600 transition-colors" />
+              <div className="absolute w-2 h-2 bg-white rounded-full opacity-0 peer-checked:opacity-100 transition-opacity" />
+            </div>
+            <span className={`text-gray-700 transition-colors ${answer !== undefined && answer !== null && answer !== '' && !question.options.some(o => o.text === answer) ? 'font-bold' : ''}`}>カスタム回答</span>
+          </label>
+          
+          {(answer !== undefined && answer !== null && answer !== '' && !question.options.some(o => o.text === answer)) || (answer === ' ') ? (
+            <input
+              type="text"
+              value={answer === ' ' ? '' : answer}
+              onChange={(e) => onChange(e.target.value || ' ')}
+              placeholder="回答を入力"
+              className="flex-1 border-b-2 border-blue-500 py-1 outline-none text-sm bg-transparent animate-in fade-in slide-in-from-left-2"
+              autoFocus
+            />
+          ) : null}
+        </div>
+      )}
     </div>
   );
 
@@ -50,14 +80,41 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
     const currentAnswers: string[] = Array.isArray(answer) ? answer : [];
     const validation = question.checkboxValidation;
     
+    const currentValidAnswers = currentAnswers.filter(a => 
+      question.options.some(opt => opt.text === a)
+    );
+    const currentCustomAnswers = currentAnswers.filter(a => 
+      !question.options.some(opt => opt.text === a)
+    );
+
     const handleToggle = (text: string) => {
       let newAnswers = [];
-      if (currentAnswers.includes(text)) {
-        newAnswers = currentAnswers.filter(a => a !== text);
+      if (currentValidAnswers.includes(text)) {
+        newAnswers = currentValidAnswers.filter(a => a !== text);
       } else {
-        newAnswers = [...currentAnswers, text];
+        newAnswers = [...currentValidAnswers, text];
       }
-      onChange(newAnswers);
+      
+      if (question.allowCustomAnswer) {
+        onChange([...newAnswers, ...currentCustomAnswers]);
+      } else {
+        onChange(newAnswers);
+      }
+    };
+
+    const handleAddCustom = () => {
+      onChange([...currentValidAnswers, ...currentCustomAnswers, ' ']);
+    };
+
+    const handleCustomChange = (index: number, newText: string) => {
+      const newCustomAnswers = [...currentCustomAnswers];
+      newCustomAnswers[index] = newText || ' ';
+      onChange([...currentValidAnswers, ...newCustomAnswers]);
+    };
+
+    const handleRemoveCustom = (index: number) => {
+      const newCustomAnswers = currentCustomAnswers.filter((_, i) => i !== index);
+      onChange([...currentValidAnswers, ...newCustomAnswers]);
     };
 
     let errorMsg = null;
@@ -98,6 +155,51 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
             </label>
           );
         })}
+        
+        {question.allowCustomAnswer && currentCustomAnswers.map((customText, index) => (
+          <div key={`custom-${index}`} className="flex items-center gap-3 animate-in fade-in slide-in-from-left-2">
+            <div className="relative flex items-center justify-center">
+              <input 
+                type="checkbox" 
+                checked={true}
+                onChange={() => handleRemoveCustom(index)}
+                className="peer sr-only" 
+              />
+              <div className="w-5 h-5 rounded border-2 border-blue-600 bg-blue-600 transition-colors" />
+              <svg className="absolute w-3 h-3 text-white transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            
+            <input
+              type="text"
+              value={customText === ' ' ? '' : customText}
+              onChange={(e) => handleCustomChange(index, e.target.value)}
+              placeholder="回答を入力"
+              className="flex-1 border-b-2 border-blue-500 py-1 outline-none text-sm bg-transparent"
+              autoFocus={customText === ' '}
+            />
+            
+            <button 
+              onClick={() => handleRemoveCustom(index)}
+              className="text-gray-300 hover:text-red-500 transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        
+        {question.allowCustomAnswer && (
+          <div className="pt-2">
+            <button 
+              onClick={handleAddCustom}
+              className="flex items-center gap-1 text-sm font-bold text-blue-500 hover:text-blue-700 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+              カスタム回答
+            </button>
+          </div>
+        )}
         {errorMsg && (
           <p className="text-red-500 text-xs mt-2 flex items-center gap-1 font-bold animate-in fade-in slide-in-from-top-1">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -237,11 +339,16 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
       if (question.gridInputType === 'radio') {
         onChange({ ...gridAnswer, [rowText]: colText });
       } else {
-        const rowAnswers = Array.isArray(gridAnswer[rowText]) ? gridAnswer[rowText] : [];
-        if (rowAnswers.includes(colText)) {
-          onChange({ ...gridAnswer, [rowText]: rowAnswers.filter((t: string) => t !== colText) });
+        const rawAnswers = Array.isArray(gridAnswer[rowText]) ? gridAnswer[rowText] : [];
+        // 現在の列設定(gridCols)に存在する有効な回答だけを抽出する
+        const currentValidAnswers = rawAnswers.filter((t: string) => 
+          question.gridCols.some(col => col.text === t)
+        );
+
+        if (currentValidAnswers.includes(colText)) {
+          onChange({ ...gridAnswer, [rowText]: currentValidAnswers.filter((t: string) => t !== colText) });
         } else {
-          onChange({ ...gridAnswer, [rowText]: [...rowAnswers, colText] });
+          onChange({ ...gridAnswer, [rowText]: [...currentValidAnswers, colText] });
         }
       }
     };
