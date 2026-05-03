@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams, useParams } from 'react-router-dom'; 
+import { useNavigate, useSearchParams, useParams, useBlocker } from 'react-router-dom'; 
 import QuestionBox from './components/QuestionBox';
-import { FileText, Eye, Send, Globe } from 'lucide-react';
+import { FileText, Eye, Send, Globe, AlertTriangle } from 'lucide-react';
 import SendSettings from './components/SendSettings';
 import { supabase } from '../../../lib/supabase';
 import FormAnswerUI from '../Answer/components/FormAnswerUI';
+import { validateFormCritical } from './formValidation';
 
 // 分離したコンポーネントのimport
 import TitleBox from './components/TitleBox';
@@ -90,6 +91,8 @@ export default function FormEditorPage() {
   const [questions, setQuestions] = useState<QuestionData[]>([initialDefaultQuestion]);
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(initialDefaultQuestion.id);
   const [responseCount, setResponseCount] = useState<number | null>(null);
+  // 公開済フォームで致命的エラーがあり自動保存を一時停止しているかどうか
+  const [saveBlocked, setSaveBlocked] = useState(false);
 
   // 回答数をバックグラウンドで取得
   useEffect(() => {
@@ -233,6 +236,16 @@ export default function FormEditorPage() {
     if (!hasUnsavedChanges) return;
 
     const timer = setTimeout(async () => {
+      // 公開済みの場合は致命的エラーをチェックし、あれば保存をスキップする
+      if (formStatus === 'published') {
+        const criticalErrors = validateFormCritical(title, questions);
+        if (criticalErrors.length > 0) {
+          setSaveBlocked(true);
+          setHasUnsavedChanges(false); // リトライルループ防止
+          return;
+        }
+      }
+      setSaveBlocked(false);
       setHasUnsavedChanges(false);
       setIsSaving(true);
       try {
@@ -266,7 +279,7 @@ export default function FormEditorPage() {
       }
     }, 1000);
     return () => clearTimeout(timer);
-  }, [title, description, questions, hasUnsavedChanges]);
+  }, [title, description, questions, hasUnsavedChanges, formStatus]);
 
   const handleTitleChange = (newTitle: string) => {
     setTitle(newTitle);
@@ -394,6 +407,51 @@ export default function FormEditorPage() {
     }
   };
 
+  const handleShowErrors = () => {
+    const errors = validateFormCritical(title, questions);
+    if (errors.length > 0) {
+      const errorList = errors.map(e => `・ ${e.message}`).join('\n');
+      alert(`以下の不備を修正してください。\n\n${errorList}`);
+      // 最初のエラーのある質問に自動スクロール
+      if (errors[0].questionId) {
+        const el = document.getElementById(`box-${errors[0].questionId}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return true; // エラーあり
+    }
+    return false; // エラーなし
+  };
+
+  // ==========================================
+  // ページ離脱・タブ閉じのブロック処理
+  // ==========================================
+
+  // 1. タブを閉じようとしたり、リロードしようとした時のブロック（ブラウザ標準の警告）
+  useEffect(() => {
+    if (!saveBlocked) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ''; // これを設定するとブラウザ標準の確認ダイアログが出ます
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [saveBlocked]);
+
+  // 2. サイト内での別ページへの遷移（React Routerの機能）をブロック
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      saveBlocked && currentLocation.pathname !== nextLocation.pathname
+  );
+
+  useEffect(() => {
+    if (blocker.state === 'blocked') {
+      // 遷移しようとした瞬間にエラーダイアログを出し、スクロールさせる
+      handleShowErrors();
+      // 遷移自体はキャンセルして今のページにとどまる
+      blocker.reset();
+    }
+  }, [blocker.state, blocker.reset]);
+
   // ==========================================
   // ローディング
   // ==========================================
@@ -503,13 +561,20 @@ export default function FormEditorPage() {
       <div className="flex items-center gap-3 md:gap-5">
         {isEditorMode && (
           <>
-            <div className="hidden md:block text-xs font-medium text-gray-500">
+            <div className="hidden md:block text-xs font-medium">
               {isSaving ? (
-                <span className="flex items-center gap-1"><span className="animate-spin text-blue-500">⏳</span> 保存中...</span>
+                <span className="flex items-center gap-1 text-gray-500"><span className="animate-spin text-blue-500">⏳</span> 保存中...</span>
+              ) : saveBlocked ? (
+                <button 
+                  onClick={handleShowErrors}
+                  className="flex items-center gap-1 text-orange-500 font-bold hover:text-orange-600 transition-colors"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />不備あり—公開を一時停止中
+                </button>
               ) : lastSavedTime ? (
                 <span className="text-green-600">✓ {lastSavedTime.toLocaleTimeString()}に保存</span>
               ) : (
-                <span>変更は自動保存されます</span>
+                <span className="text-gray-500">変更は自動保存されます</span>
               )}
             </div>
 
@@ -526,7 +591,12 @@ export default function FormEditorPage() {
               </button>
               
               <button
-                onClick={() => setViewMode('send')}
+                onClick={() => {
+                  const hasErrors = handleShowErrors();
+                  if (!hasErrors) {
+                    setViewMode('send');
+                  }
+                }}
                 className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm text-white text-sm ${formStatus === 'published' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
               >
                 {formStatus === 'published' ? (<><Globe className="w-4 h-4" />公開済み</>) : (<><Send className="w-4 h-4" />送信</>)}

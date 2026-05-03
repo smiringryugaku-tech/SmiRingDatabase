@@ -57,7 +57,7 @@ export default function AnswerBox({ question, answer, onChange, error }: Props) 
               <div className="w-5 h-5 rounded-full border-2 border-gray-300 peer-checked:border-blue-600 peer-checked:bg-blue-600 transition-colors" />
               <div className="absolute w-2 h-2 bg-white rounded-full opacity-0 peer-checked:opacity-100 transition-opacity" />
             </div>
-            <span className={`text-gray-700 transition-colors ${answer !== undefined && answer !== null && answer !== '' && !question.options.some(o => o.text === answer) ? 'font-bold' : ''}`}>カスタム回答</span>
+            <span className={`transition-colors ${answer !== undefined && answer !== null && answer !== '' && !question.options.some(o => o.text === answer) ? 'font-bold text-blue-700' : 'text-blue-500 font-medium'}`}>カスタム回答</span>
           </label>
           
           {(answer !== undefined && answer !== null && answer !== '' && !question.options.some(o => o.text === answer)) || (answer === ' ') ? (
