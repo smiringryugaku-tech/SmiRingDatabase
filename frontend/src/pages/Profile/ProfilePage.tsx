@@ -1,23 +1,47 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom'; 
+import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import BasicInfoPage from './BasicInfoTab';
 import DetailInfoTab from './DetailInfoTab';
+import PhotoUploadModal from './components/PhotoUploadModal';
+import PhotoViewModal from '../../components/ui/PhotoViewModal';
 import { API_BASE_URL } from '../../config';
+
+type GalleryItem = {
+  id: string;
+  storage_path: string;
+  image_type: string | null;
+  tags: string[];
+  description: string | null;
+  visibility: string | null;
+  created_at: string;
+  view_url: string;
+};
 
 export default function ProfilePage() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<'basic' | 'detail'>('basic');
   const [profileData, setProfileData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isEditable, setIsEditable] = useState(false); 
+  const [isEditable, setIsEditable] = useState(false);
+
+  // ギャラリー
+  const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
+  const [isGalleryLoading, setIsGalleryLoading] = useState(false);
+
+  // 写真アップロードモーダル
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadModalMode, setUploadModalMode] = useState<'avatar' | 'gallery'>('avatar');
+
+  // 写真拡大表示モーダル
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; description: string | null } | null>(null);
 
   const fetchProfile = useCallback(async () => {
     try {
-      // setIsLoading(true); // Call only initially if preferred, but it's okay here
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      const myUserId = session?.user?.id; 
+      const myUserId = session?.user?.id;
 
       if (!token) return;
 
@@ -37,7 +61,6 @@ export default function ProfilePage() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-
       setProfileData(data);
     } catch (error) {
       console.error('プロフィール取得エラー:', error);
@@ -46,71 +69,152 @@ export default function ProfilePage() {
     }
   }, [id]);
 
+  const fetchGallery = useCallback(async () => {
+    setIsGalleryLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/gallery`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      setGalleryItems(data);
+    } catch (error) {
+      console.error('ギャラリー取得エラー:', error);
+    } finally {
+      setIsGalleryLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchProfile();
-  }, [fetchProfile]); 
+    fetchGallery();
+  }, [fetchProfile, fetchGallery]);
 
-  const avatarUrl = profileData?.avatar_link 
-    ? profileData.avatar_link 
+  const avatarUrl = profileData?.avatar_link
+    ? profileData.avatar_link
     : '/assets/images/profile_photo_empty.png';
 
-  const dummyGallery = Array.from({ length: 9 }).map((_, __) => `/assets/images/photo_empty.png`);
+  const openAvatarModal = () => {
+    if (!isEditable) return;
+    setUploadModalMode('avatar');
+    setUploadModalOpen(true);
+  };
+
+  const openGalleryModal = () => {
+    setUploadModalMode('gallery');
+    setUploadModalOpen(true);
+  };
+
+  const handleUploadSuccess = () => {
+    fetchProfile();
+    fetchGallery();
+  };
 
   if (isLoading) {
     return <div className="flex h-full items-center justify-center text-gray-500">Loading...</div>;
   }
-  
+
   return (
-    // 🌟 スマホ時は全体スクロール (overflow-y-auto)、PC時は固定 (md:overflow-hidden) で2カラム
     <div className="flex flex-col md:flex-row h-full w-full bg-white text-gray-900 overflow-y-auto md:overflow-hidden">
-      
+
       {/* ==========================================
           左側(PC) / 上部(スマホ)：プロフィールサマリー & 写真一覧
       ========================================== */}
       <div className="w-full md:w-80 lg:w-96 bg-gray-50 px-4 md:px-6 py-6 md:py-8 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col items-center flex-shrink-0 md:overflow-y-auto">
-        
+
         {/* 1. 大きな丸いプロフィール写真 */}
-        <div 
-          // 🌟 スマホ時は少し小さめ (w-32)、PC時は大きく (max-w-[240px])
+        <div
           className={`w-32 md:w-full max-w-[240px] aspect-square rounded-full border-4 border-gray-300 overflow-hidden relative group bg-gray-200 flex items-center justify-center flex-shrink-0 ${
             isEditable ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''
           }`}
-          onClick={() => {
-            if (isEditable) alert('TODO: 写真変更モーダルを開く');
-          }}
+          onClick={openAvatarModal}
         >
-          {profileData?.avatar_link ? (
-             <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-          ) : (
-             <img src="/assets/images/profile_photo_empty.png" alt="Empty Avatar" className="w-full h-full object-cover" />
-          )}
-          
+          <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+
           {isEditable && (
-            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-              <span className="text-white font-bold text-xs md:text-sm">写真を変更</span>
+            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="text-center text-white">
+                <svg className="w-7 h-7 mx-auto mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span className="font-bold text-xs md:text-sm">写真を変更</span>
+              </div>
             </div>
           )}
         </div>
 
         <h2 className="text-3xl mt-5 md:text-4xl font-bold mb-6 md:mb-10 truncate">
-            {profileData?.name_english ?? "No Name"}
-          </h2>
+          {profileData?.name_english ?? 'No Name'}
+        </h2>
 
         {/* 2. 写真一覧 (Photos) */}
         <div className="w-full mt-6 md:mt-8">
-          <h3 className="font-bold text-base md:text-lg mb-3 md:mb-4">Photos</h3>
-          {/* 🌟 スマホ：横スクロール (flex overflow-x-auto)、PC：グリッド (md:grid md:grid-cols-3) */}
-          {/* スクロールバーを見えなくする隠しクラスを付与 */}
-          <div className="flex overflow-x-auto md:grid md:grid-cols-3 gap-2 pb-2 md:pb-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            {dummyGallery.map((_, index) => (
-              <div 
-                key={index} 
-                // 🌟 横スクロール時に写真が潰れないように flex-shrink-0 と固定幅(w-24)を指定
-                className="w-24 h-24 md:w-auto md:h-auto md:aspect-square flex-shrink-0 rounded-lg overflow-hidden bg-gray-200 cursor-pointer hover:opacity-80 flex items-center justify-center"
+          <div className="flex items-center justify-between mb-3 md:mb-4">
+            <h3 className="font-bold text-base md:text-lg">Photos</h3>
+            {isEditable && (
+              <button
+                onClick={openGalleryModal}
+                className="flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors"
               >
-                 <span className="text-xs text-gray-400">Photo</span>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                追加
+              </button>
+            )}
+          </div>
+
+          {/* ギャラリーグリッド */}
+          <div className="flex overflow-x-auto md:grid md:grid-cols-3 gap-2 pb-2 md:pb-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            {isGalleryLoading ? (
+              // ローディング中はスケルトン表示
+              Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="w-24 h-24 md:w-auto md:h-auto md:aspect-square flex-shrink-0 rounded-lg bg-gray-200 animate-pulse"
+                />
+              ))
+            ) : galleryItems.length > 0 ? (
+              galleryItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="w-24 h-24 md:w-auto md:h-auto md:aspect-square flex-shrink-0 rounded-lg overflow-hidden bg-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
+                  title={item.description ?? undefined}
+                  onClick={() => {
+                    setSelectedPhoto({ url: item.view_url, description: item.description });
+                    setViewModalOpen(true);
+                  }}
+                >
+                  <img
+                    src={item.view_url}
+                    alt={item.image_type ?? '写真'}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ))
+            ) : (
+              // 写真なし
+              <div className="col-span-3 py-8 text-center text-gray-400 text-sm">
+                {isEditable ? (
+                  <button
+                    onClick={openGalleryModal}
+                    className="flex flex-col items-center gap-2 mx-auto hover:text-blue-500 transition-colors"
+                  >
+                    <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>写真を追加する</span>
+                  </button>
+                ) : (
+                  <span>写真がありません</span>
+                )}
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
@@ -119,18 +223,18 @@ export default function ProfilePage() {
           右側(PC) / 下部(スマホ)：メインコンテンツ
       ========================================== */}
       <div className="flex-1 flex flex-col bg-white md:overflow-hidden min-w-0">
-        
+
         {/* 上部ヘッダー＆タブ部分 */}
-        <div className="px-4 md:px-10 pt-6 md:pt-10 border-b border-gray-200 flex-shrink-0">          
+        <div className="px-4 md:px-10 pt-6 md:pt-10 border-b border-gray-200 flex-shrink-0">
           <div className="flex space-x-6 md:space-x-8 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            <button 
+            <button
               className={`pb-3 font-medium text-base md:text-lg transition-colors relative whitespace-nowrap ${activeTab === 'basic' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
               onClick={() => setActiveTab('basic')}
             >
               Basic Information
               {activeTab === 'basic' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
             </button>
-            <button 
+            <button
               className={`pb-3 font-medium text-base md:text-lg transition-colors relative whitespace-nowrap ${activeTab === 'detail' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
               onClick={() => setActiveTab('detail')}
             >
@@ -140,7 +244,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* タブの中身 (PC時のみここがスクロールする) */}
+        {/* タブの中身 */}
         <div className="flex-1 md:overflow-y-auto">
           {activeTab === 'basic' ? (
             <BasicInfoPage initialData={profileData} isEditable={isEditable} onDataChange={fetchProfile} />
@@ -149,7 +253,22 @@ export default function ProfilePage() {
           )}
         </div>
       </div>
-      
+
+      {/* 写真アップロードモーダル */}
+      <PhotoUploadModal
+        isOpen={uploadModalOpen}
+        mode={uploadModalMode}
+        onClose={() => setUploadModalOpen(false)}
+        onSuccess={handleUploadSuccess}
+      />
+
+      {/* 写真拡大表示モーダル */}
+      <PhotoViewModal
+        isOpen={viewModalOpen}
+        imageUrl={selectedPhoto?.url ?? null}
+        description={selectedPhoto?.description}
+        onClose={() => setViewModalOpen(false)}
+      />
     </div>
   );
 }

@@ -9,7 +9,7 @@ type Props = {
 // --- アイコン群 ---
 function DocumentIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-violet-500">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
       <polyline points="14 2 14 8 20 8"></polyline>
       <line x1="16" y1="13" x2="8" y2="13"></line>
@@ -45,19 +45,19 @@ function FormResponseRow({ response, onClick }: { response: any, onClick: () => 
   return (
     <div
       onClick={onClick}
-      className="group flex px-3 py-3 md:py-4 border-b border-gray-100 transition-colors cursor-pointer hover:bg-violet-50 items-center"
+      className="group flex px-3 py-3 md:py-4 border-b border-gray-100 transition-colors cursor-pointer hover:bg-blue-50 items-center"
     >
-      <div className="mr-3 md:mr-4 flex-shrink-0 bg-violet-100 p-2 rounded-lg">
+      <div className="mr-3 md:mr-4 flex-shrink-0 bg-blue-100 p-2 rounded-lg">
         <DocumentIcon />
       </div>
-      
+
       {/* 🌟 スマホの時は縦、PCの時は横並び */}
       <div className="flex-1 flex flex-col md:flex-row md:items-center min-w-0 gap-1 md:gap-4">
         {/* 左側：フォームのタイトル */}
-        <span className="text-[13px] md:text-[14px] font-bold text-gray-800 w-full md:w-2/3 flex-shrink-0 truncate group-hover:text-violet-700 transition-colors">
+        <span className="text-[13px] md:text-[14px] font-bold text-gray-800 w-full md:w-2/3 flex-shrink-0 truncate group-hover:text-blue-700 transition-colors">
           {response.form_title}
         </span>
-        
+
         {/* 右側：提出日 */}
         <div className="flex-1 w-full pl-0 md:pl-2 text-gray-400 text-[11px] md:text-[12px] font-medium">
           Submitted: {formattedDate}
@@ -105,7 +105,7 @@ export default function DetailInfoTab({ userId, isEditable = false }: Props) {
   return (
     <div className="w-full px-4 md:px-6 py-6 pb-20">
       <SectionTitle title="Submitted Forms" />
-      
+
       {isLoading ? (
         <div className="px-3 py-6 text-sm text-gray-400 animate-pulse">Loading responses...</div>
       ) : responses.length === 0 ? (
@@ -116,15 +116,15 @@ export default function DetailInfoTab({ userId, isEditable = false }: Props) {
       ) : (
         <div className="flex flex-col">
           {responses.map((res) => (
-            <FormResponseRow 
-              key={res.id} 
-              response={res} 
-              onClick={() => handleRowClick(res.form_title)} 
+            <FormResponseRow
+              key={res.id}
+              response={res}
+              onClick={() => handleRowClick(res.form_title)}
             />
           ))}
         </div>
       )}
-      
+
       <div className="h-16" />
     </div>
   );
