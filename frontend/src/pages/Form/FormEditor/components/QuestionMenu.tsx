@@ -3,18 +3,23 @@
 import { useState } from 'react';
 import { 
   CircleDot, CheckSquare, SquareChevronDown, LineDotRightHorizontal, 
-  LayoutGrid, ArrowLeft, PenLine, NotebookPen, Image as ImageIcon, Trash2 
+  LayoutGrid, ArrowLeft, PenLine, NotebookPen, Image as ImageIcon, Trash2, Settings 
 } from 'lucide-react';
+import type { QuestionData } from '../FormEditorPage';
+import QuestionSettingsModal from './QuestionSettingsModal';
 
 type QuestionMenuProps = {
   currentType: string;
   isActive: boolean;
   onChangeType: (type: string) => void;
   onDelete: () => void;
+  question: QuestionData;
+  onChange: (updates: Partial<QuestionData>) => void;
 };
 
-export default function QuestionMenu({ currentType, isActive, onChangeType, onDelete }: QuestionMenuProps) {
+export default function QuestionMenu({ currentType, isActive, onChangeType, onDelete, question, onChange }: QuestionMenuProps) {
   const [isTypeMenuOpen, setIsTypeMenuOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const questionTypes = [
     { value: 'radio',        label: 'ラジオボタン',        icon: CircleDot },
@@ -26,7 +31,12 @@ export default function QuestionMenu({ currentType, isActive, onChangeType, onDe
     { value: 'long_text_md', label: '長文入力',            icon: NotebookPen },
   ];
 
-  
+  // 有効な設定があるかどうかを判定（その形式で使える設定のみをチェック）
+  const hasActiveSettings = 
+    (['radio', 'checkbox', 'dropdown'].includes(question.type) && question.allowCustomAnswer) ||
+    (question.type === 'checkbox' && question.checkboxValidation?.enabled) ||
+    (question.type === 'short_text' && (question.shortTextValidation?.enabled || question.shortTextMultiple?.enabled));
+
   // 🌟 PC用（右側に浮かぶ）とスマホ用（下部に固定）の共通・個別クラス
   const visibilityClass = isActive 
     ? "opacity-100 pointer-events-auto" 
@@ -76,6 +86,15 @@ export default function QuestionMenu({ currentType, isActive, onChangeType, onDe
   // --- 状態2: 通常のメインメニュー ---
   return (
     <>
+      {/* モーダル */}
+      {isSettingsOpen && (
+        <QuestionSettingsModal
+          question={question}
+          onChange={onChange}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
+
       {/* PC表示 */}
       <div className={`${desktopClass} ${visibilityClass}`}>
         <button onClick={() => setIsTypeMenuOpen(true)} className="flex items-center p-2 hover:bg-blue-50 rounded-md text-gray-600 transition-colors group">
@@ -85,6 +104,21 @@ export default function QuestionMenu({ currentType, isActive, onChangeType, onDe
         <button className="flex items-center p-2 hover:bg-blue-50 rounded-md text-gray-600 transition-colors group">
           <ImageIcon className="w-5 h-5 mr-3 text-gray-400 group-hover:text-blue-600" />
           <span className="text-sm font-medium">画像を挿入</span>
+        </button>
+        <button 
+          onClick={() => setIsSettingsOpen(true)} 
+          className="flex items-center p-2 hover:bg-blue-50 rounded-md text-gray-600 transition-colors group"
+        >
+          <div className="relative mr-3">
+            <Settings className="w-5 h-5 text-gray-400 group-hover:text-blue-600" />
+            {hasActiveSettings && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full" />
+            )}
+          </div>
+          <span className="text-sm font-medium">詳細設定</span>
+          {hasActiveSettings && (
+            <span className="ml-auto text-[10px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full">ON</span>
+          )}
         </button>
         <hr className="border-gray-100 my-1" />
         <button onClick={onDelete} className="flex items-center p-2 hover:bg-red-50 rounded-md text-red-500 transition-colors group">
@@ -102,6 +136,18 @@ export default function QuestionMenu({ currentType, isActive, onChangeType, onDe
         <button className="flex flex-col items-center justify-center p-2 text-gray-600 active:text-blue-600 w-20">
           <ImageIcon className="w-6 h-6 mb-1" />
           <span className="text-[10px] font-bold">画像</span>
+        </button>
+        <button 
+          onClick={() => setIsSettingsOpen(true)}
+          className="flex flex-col items-center justify-center p-2 text-gray-600 active:text-blue-600 w-20 relative"
+        >
+          <div className="relative">
+            <Settings className="w-6 h-6 mb-1" />
+            {hasActiveSettings && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-white" />
+            )}
+          </div>
+          <span className="text-[10px] font-bold">設定</span>
         </button>
         <button onClick={onDelete} className="flex flex-col items-center justify-center p-2 text-red-500 active:text-red-600 w-20">
           <Trash2 className="w-6 h-6 mb-1" />

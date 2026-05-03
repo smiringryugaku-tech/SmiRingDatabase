@@ -58,91 +58,54 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
   const renderListOptions = (type: string) => {
     return (
       <div className="pt-4 space-y-2">
-        {question.options.map((opt, index) => (
-          <div key={opt.id} className="flex items-center space-x-3 group/option">
-            {type === 'radio' && <div className="w-5 h-5 border-2 border-gray-300 rounded-full flex-shrink-0" />}
-            {type === 'checkbox' && <div className="w-5 h-5 border-2 border-gray-300 rounded-md flex-shrink-0" />}
-            
-            <input 
-              type="text" 
-              value={opt.text}
-              placeholder={`選択肢 ${index + 1}`}
-              onChange={(e) => handleUpdateOption(opt.id, e.target.value)}
-              className="flex-1 text-sm border-b border-transparent focus:border-blue-500 focus:outline-none hover:border-gray-200 py-1 transition-colors" 
-            />
-            <button 
-              onClick={() => handleRemoveOption(opt.id)}
-              className="text-gray-300 hover:text-red-500 opacity-0 group-hover/option:opacity-100 transition-opacity"
-            >
-              ✕
-            </button>
-          </div>
-        ))}
+        {question.options.map((opt, index) => {
+          const isDuplicate = question.options.some(other => other.id !== opt.id && other.text.trim() !== '' && other.text.trim() === opt.text.trim());
+          return (
+            <div key={opt.id} className="space-y-1">
+              <div className="flex items-center space-x-3 group/option">
+                {type === 'radio' && <div className={`w-5 h-5 border-2 ${isDuplicate ? 'border-red-300' : 'border-gray-300'} rounded-full flex-shrink-0`} />}
+                {type === 'checkbox' && <div className={`w-5 h-5 border-2 ${isDuplicate ? 'border-red-300' : 'border-gray-300'} rounded-md flex-shrink-0`} />}
+                
+                <input 
+                  type="text" 
+                  value={opt.text}
+                  placeholder={`選択肢 ${index + 1}`}
+                  onChange={(e) => handleUpdateOption(opt.id, e.target.value)}
+                  className={`flex-1 text-sm border-b transition-colors focus:outline-none py-1 ${
+                    isDuplicate 
+                      ? 'border-red-500 text-red-600 focus:border-red-600' 
+                      : 'border-transparent focus:border-blue-500 hover:border-gray-200 text-gray-700'
+                  }`} 
+                />
+                <button 
+                  onClick={() => handleRemoveOption(opt.id)}
+                  className="text-gray-300 hover:text-red-500 opacity-0 group-hover/option:opacity-100 transition-opacity"
+                >
+                  ✕
+                </button>
+              </div>
+              {isDuplicate && (
+                <p className="text-[10px] text-red-500 font-bold pl-8 animate-in fade-in slide-in-from-top-1">
+                  「{opt.text}」はすでに存在します
+                </p>
+              )}
+            </div>
+          );
+        })}
         <div className="flex items-center space-x-2 pt-2 cursor-pointer text-blue-500 hover:text-blue-700" onClick={handleAddOption}>
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
-          <span className="text-sm">選択肢を追加</span>
+          <span className="text-sm font-bold">選択肢を追加</span>
         </div>
-
-        <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-          <span className="text-sm font-bold text-gray-600">「カスタム回答」を許可する</span>
-          <label className="flex items-center cursor-pointer">
-            <div className="relative">
-              <input 
-                type="checkbox" 
-                className="sr-only" 
-                checked={question.allowCustomAnswer || false}
-                onChange={(e) => onChange({ allowCustomAnswer: e.target.checked })}
-              />
-              <div className={`block w-10 h-6 rounded-full transition-colors ${question.allowCustomAnswer ? 'bg-blue-500' : 'bg-gray-300'}`}></div>
-              <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${question.allowCustomAnswer ? 'transform translate-x-4' : ''}`}></div>
-            </div>
-          </label>
-        </div>
-
-        {type === 'checkbox' && (
-          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mt-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-bold text-gray-600">回答の検証（選択数の制限）</span>
-              <label className="flex items-center cursor-pointer">
-                <div className="relative">
-                  <input 
-                    type="checkbox" 
-                    className="sr-only" 
-                    checked={question.checkboxValidation?.enabled || false}
-                    onChange={(e) => onChange({ checkboxValidation: { ...(question.checkboxValidation || { min: '', max: '', errorMsg: '' }), enabled: e.target.checked }})}
-                  />
-                  <div className={`block w-10 h-6 rounded-full transition-colors ${question.checkboxValidation?.enabled ? 'bg-blue-500' : 'bg-gray-300'}`}></div>
-                  <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${question.checkboxValidation?.enabled ? 'transform translate-x-4' : ''}`}></div>
-                </div>
-              </label>
-            </div>
-            {question.checkboxValidation?.enabled && (
-              <div className="flex flex-wrap gap-3 items-center mt-4">
-                <span className="text-sm text-gray-600">最小</span>
-                <input 
-                  type="number" min="0" placeholder="なし" 
-                  value={question.checkboxValidation.min}
-                  onChange={e => onChange({ checkboxValidation: { ...question.checkboxValidation, min: e.target.value ? Number(e.target.value) : '' }})}
-                  className="p-2 border border-gray-300 rounded-md text-sm w-20 focus:outline-none focus:border-blue-500"
-                />
-                <span className="text-sm text-gray-600">最大</span>
-                <input 
-                  type="number" min="0" placeholder="なし" 
-                  value={question.checkboxValidation.max}
-                  onChange={e => onChange({ checkboxValidation: { ...question.checkboxValidation, max: e.target.value ? Number(e.target.value) : '' }})}
-                  className="p-2 border border-gray-300 rounded-md text-sm w-20 focus:outline-none focus:border-blue-500"
-                />
-                <input 
-                  type="text" placeholder="カスタムエラーテキスト" 
-                  value={question.checkboxValidation.errorMsg}
-                  onChange={e => onChange({ checkboxValidation: { ...question.checkboxValidation, errorMsg: e.target.value }})}
-                  className="p-2 border border-gray-300 rounded-md text-sm flex-1 min-w-[150px] focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            )}
-          </div>
+        {/* 選択肢ごとのカスタム設定がある場合の表示バッジ */}
+        {question.allowCustomAnswer && (
+          <p className="text-xs text-blue-500 font-medium pt-1 pl-8">＋ カスタム回答が有効</p>
+        )}
+        {question.type === 'checkbox' && question.checkboxValidation?.enabled && (
+          <p className="text-xs text-orange-500 font-medium pt-1 pl-8">
+            ※ 選択数の制限: {question.checkboxValidation.min !== '' ? `${question.checkboxValidation.min}個以上` : ''}{question.checkboxValidation.min !== '' && question.checkboxValidation.max !== '' ? ' / ' : ''}{question.checkboxValidation.max !== '' ? `${question.checkboxValidation.max}個以下` : ''}
+          </p>
         )}
       </div>
     );
@@ -158,20 +121,34 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
             <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
           </div>
           <div className="p-2 space-y-1 bg-white">
-            {question.options.map((opt, index) => (
-              <div key={opt.id} className="flex items-center space-x-3 group/option p-2 hover:bg-gray-50 rounded-md transition-colors">
-                <span className="text-gray-400 font-bold w-5 text-right">{index + 1}.</span>
-                <input 
-                  type="text" value={opt.text} placeholder={`選択肢 ${index + 1}`}
-                  onChange={(e) => handleUpdateOption(opt.id, e.target.value)}
-                  className="flex-1 text-sm bg-transparent border-b border-transparent focus:border-blue-500 focus:outline-none py-1" 
-                />
-                <button onClick={() => handleRemoveOption(opt.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover/option:opacity-100 transition-opacity">✕</button>
-              </div>
-            ))}
-            <div className="flex items-center space-x-2 pt-2 cursor-pointer text-blue-500 hover:text-blue-700" onClick={handleAddOption}>
+            {question.options.map((opt, index) => {
+              const isDuplicate = question.options.some(other => other.id !== opt.id && other.text.trim() !== '' && other.text.trim() === opt.text.trim());
+              return (
+                <div key={opt.id} className="space-y-1">
+                  <div className="flex items-center space-x-3 group/option p-2 hover:bg-gray-50 rounded-md transition-colors">
+                    <span className={`font-bold w-5 text-right ${isDuplicate ? 'text-red-300' : 'text-gray-400'}`}>{index + 1}.</span>
+                    <input 
+                      type="text" value={opt.text} placeholder={`選択肢 ${index + 1}`}
+                      onChange={(e) => handleUpdateOption(opt.id, e.target.value)}
+                      className={`flex-1 text-sm bg-transparent border-b transition-colors focus:outline-none py-1 ${
+                        isDuplicate 
+                          ? 'border-red-500 text-red-600 focus:border-red-600' 
+                          : 'border-transparent focus:border-blue-500'
+                      }`} 
+                    />
+                    <button onClick={() => handleRemoveOption(opt.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover/option:opacity-100 transition-opacity">✕</button>
+                  </div>
+                  {isDuplicate && (
+                    <p className="text-[10px] text-red-500 font-bold pl-10 animate-in fade-in slide-in-from-top-1">
+                      「{opt.text}」はすでに存在します
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+            <div className="flex items-center space-x-2 pt-2 cursor-pointer text-blue-500 hover:text-blue-700 p-2" onClick={handleAddOption}>
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-              <span className="text-sm">選択肢を追加</span>
+              <span className="text-sm font-bold">選択肢を追加</span>
             </div>
           </div>
         </div>
@@ -251,166 +228,32 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
 
   // ---  短文入力（フォーマット指定付き） ---
   const renderShortText = () => {
+    const validationEnabled = question.shortTextValidation?.enabled;
+    const multipleEnabled = question.shortTextMultiple?.enabled;
+    
     return (
-      <div className="pt-4 space-y-4">
+      <div className="pt-4 space-y-3">
         <input 
           type="text" 
           placeholder="回答者はここに短文を入力します。" 
           readOnly
           className="w-full md:w-1/2 border-b border-gray-300 border-dotted focus:outline-none py-2 text-sm text-gray-400 bg-transparent"
         />
-        
-        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mt-2 mb-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-gray-600">複数回答を許可</span>
-            <label className="flex items-center cursor-pointer">
-              <div className="relative">
-                <input 
-                  type="checkbox" 
-                  className="sr-only" 
-                  checked={question.shortTextMultiple?.enabled || false}
-                  onChange={(e) => onChange({ shortTextMultiple: { ...(question.shortTextMultiple || { style: 'bullet' }), enabled: e.target.checked }})}
-                />
-                <div className={`block w-10 h-6 rounded-full transition-colors ${question.shortTextMultiple?.enabled ? 'bg-blue-500' : 'bg-gray-300'}`}></div>
-                <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${question.shortTextMultiple?.enabled ? 'transform translate-x-4' : ''}`}></div>
-              </div>
-            </label>
+        {/* 設定状況のバッジ */}
+        {(validationEnabled || multipleEnabled) && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {multipleEnabled && (
+              <span className="inline-flex items-center gap-1 text-xs text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded-full font-medium">
+                複数回答: {question.shortTextMultiple?.style === 'none' ? 'なし' : question.shortTextMultiple?.style === 'bullet' ? '箇条書き' : question.shortTextMultiple?.style === 'number' ? '番号付き' : '矢印'}
+              </span>
+            )}
+            {validationEnabled && (
+              <span className="inline-flex items-center gap-1 text-xs text-orange-600 bg-orange-50 border border-orange-200 px-2 py-1 rounded-full font-medium">
+                ※ 検証: {question.shortTextValidation?.type}
+              </span>
+            )}
           </div>
-          {question.shortTextMultiple?.enabled && (
-            <div className="mt-4 flex items-center gap-3">
-              <span className="text-sm text-gray-600">リストスタイル</span>
-              <select 
-                value={question.shortTextMultiple.style}
-                onChange={e => onChange({ shortTextMultiple: { ...question.shortTextMultiple, style: e.target.value as any }})}
-                className="p-2 border border-gray-300 rounded-md text-sm bg-white focus:ring-blue-500"
-              >
-                <option value="none">なし</option>
-                <option value="bullet">箇条書き (・)</option>
-                <option value="number">数字 (1., 2.)</option>
-                <option value="arrow">矢印 (→)</option>
-              </select>
-            </div>
-          )}
-        </div>
-        
-        {/* バリデーション設定エリア */}
-        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-bold text-gray-600">回答の検証（フォーマット指定）</span>
-            <label className="flex items-center cursor-pointer">
-              <div className="relative">
-                <input 
-                  type="checkbox" 
-                  className="sr-only" 
-                  checked={question.shortTextValidation.enabled}
-                  onChange={(e) => onChange({ shortTextValidation: { ...question.shortTextValidation, enabled: e.target.checked }})}
-                />
-                <div className={`block w-10 h-6 rounded-full transition-colors ${question.shortTextValidation.enabled ? 'bg-blue-500' : 'bg-gray-300'}`}></div>
-                <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${question.shortTextValidation.enabled ? 'transform translate-x-4' : ''}`}></div>
-              </div>
-            </label>
-          </div>
-
-          {question.shortTextValidation.enabled && (
-            <div className="flex flex-wrap gap-2 items-start mt-4">
-              <select 
-                value={question.shortTextValidation.type}
-                onChange={e => onChange({ 
-                  shortTextValidation: { 
-                    ...question.shortTextValidation, 
-                    type: e.target.value,
-                    condition: e.target.value === 'number' ? 'between'
-                      : e.target.value === 'text'   ? 'contains'
-                      : e.target.value === 'regex'  ? 'match'
-                      : '',
-                    value1: '',
-                    value2: '',
-                  }
-                })}
-                className="p-2 border border-gray-300 rounded-md text-sm bg-white focus:ring-blue-500"
-              >
-                <option value="number">数値</option>
-                <option value="text">テキスト</option>
-                <option value="date">日付</option>
-                <option value="regex">正規表現</option>
-              </select>
-
-              {/* タイプに応じた条件セレクト */}
-              {question.shortTextValidation.type === 'number' && (
-                <select 
-                  value={question.shortTextValidation.condition}
-                  onChange={e => onChange({ 
-                    shortTextValidation: { 
-                      ...question.shortTextValidation, 
-                      condition: e.target.value,  // ✅ conditionだけ変更
-                      value1: '',
-                      value2: '',
-                    }
-                  })}
-                  className="p-2 border border-gray-300 rounded-md text-sm bg-white"
-                >
-                  <option value="between">次の間にある</option>
-                  <option value="greater">次の値より大きい</option>
-                  <option value="less">次の値より小さい</option>
-                </select>
-              )}
-
-              {question.shortTextValidation.type === 'text' && (
-                <select 
-                  value={question.shortTextValidation.condition}
-                  onChange={e => onChange({ shortTextValidation: { ...question.shortTextValidation, condition: e.target.value }})}
-                  className="p-2 border border-gray-300 rounded-md text-sm bg-white"
-                >
-                  <option value="contains">次を含む</option>
-                  <option value="not_contains">次を含まない</option>
-                  <option value="email">メールアドレス</option>
-                  <option value="url">URL</option>
-                </select>
-              )}
-
-              {question.shortTextValidation.type === 'regex' && (
-                <select 
-                  value={question.shortTextValidation.condition}
-                  onChange={e => onChange({ shortTextValidation: { ...question.shortTextValidation, condition: e.target.value }})}
-                  className="p-2 border border-gray-300 rounded-md text-sm bg-white"
-                >
-                  <option value="match">一致する</option>
-                  <option value="not_match">一致しない</option>
-                </select>
-              )}
-
-              {/* 値の入力エリア */}
-              {question.shortTextValidation.type !== 'date' && !['email', 'url'].includes(question.shortTextValidation.condition) && (
-                <input 
-                  type="text" 
-                  placeholder={question.shortTextValidation.type === 'regex' ? "パターン (例: ^[A-Z].*\\s.*)" : "値"} 
-                  value={question.shortTextValidation.value1}
-                  onChange={e => onChange({ shortTextValidation: { ...question.shortTextValidation, value1: e.target.value }})}
-                  className="p-2 border border-gray-300 rounded-md text-sm w-32 focus:outline-none focus:border-blue-500"
-                />
-              )}
-              {question.shortTextValidation.type === 'number' && question.shortTextValidation.condition === 'between' && (
-                <>
-                  <span className="text-sm text-gray-500 self-center">と</span>
-                  <input 
-                    type="text" placeholder="値2" 
-                    value={question.shortTextValidation.value2}
-                    onChange={e => onChange({ shortTextValidation: { ...question.shortTextValidation, value2: e.target.value }})}
-                    className="p-2 border border-gray-300 rounded-md text-sm w-32 focus:outline-none focus:border-blue-500"
-                  />
-                </>
-              )}
-
-              {/* カスタムエラーテキスト */}
-              <input 
-                type="text" placeholder="カスタムエラーテキスト" 
-                value={question.shortTextValidation.errorMsg}
-                onChange={e => onChange({ shortTextValidation: { ...question.shortTextValidation, errorMsg: e.target.value }})}
-                className="p-2 border border-gray-300 rounded-md text-sm flex-1 min-w-[150px] focus:outline-none focus:border-blue-500"
-              />
-            </div>
-          )}
-        </div>
+        )}
       </div>
     );
   };
@@ -449,36 +292,56 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
               <thead>
                 <tr>
                   <th className="pb-4 min-w-[120px]"></th>
-                  {question.gridCols.map((col, index) => (
-                    <th key={col.id} className="pb-4 min-w-[100px] text-center group/col relative">
-                      <input 
-                        type="text" value={col.text} placeholder={`列 ${index + 1}`}
-                        onChange={e => handleUpdateGridCol(col.id, e.target.value)}
-                        className="w-full text-center bg-transparent border-b border-gray-300 focus:border-blue-500 focus:outline-none pb-1 font-bold text-gray-700"
-                      />
-                      <button onClick={() => handleRemoveGridCol(col.id)} className="absolute -top-4 right-0 text-gray-300 hover:text-red-500 opacity-0 group-hover/col:opacity-100 transition-opacity">✕</button>
-                    </th>
-                  ))}
+                  {question.gridCols.map((col, index) => {
+                    const isDuplicate = question.gridCols.some(other => other.id !== col.id && other.text.trim() !== '' && other.text.trim() === col.text.trim());
+                    return (
+                      <th key={col.id} className="pb-4 min-w-[100px] text-center group/col relative">
+                        <input 
+                          type="text" value={col.text} placeholder={`列 ${index + 1}`}
+                          onChange={e => handleUpdateGridCol(col.id, e.target.value)}
+                          className={`w-full text-center bg-transparent border-b transition-colors focus:outline-none pb-1 font-bold ${
+                            isDuplicate 
+                              ? 'border-red-500 text-red-600 focus:border-red-600' 
+                              : 'border-gray-300 focus:border-blue-500 text-gray-700'
+                          }`}
+                        />
+                        <button onClick={() => handleRemoveGridCol(col.id)} className="absolute -top-4 right-0 text-gray-300 hover:text-red-500 opacity-0 group-hover/col:opacity-100 transition-opacity">✕</button>
+                        {isDuplicate && (
+                          <p className="absolute left-1/2 -translate-x-1/2 -bottom-0 text-[8px] text-red-500 font-bold whitespace-nowrap bg-white px-1">重複</p>
+                        )}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {question.gridRows.map((row, rowIndex) => (
-                  <tr key={row.id} className="group/row">
-                    <td className="py-2 px-2 relative">
-                      <input 
-                        type="text" value={row.text} placeholder={`行 ${rowIndex + 1}`}
-                        onChange={e => handleUpdateGridRow(row.id, e.target.value)}
-                        className="w-full bg-transparent border-b border-transparent focus:border-blue-500 focus:outline-none py-1 font-bold text-gray-700"
-                      />
-                      <button onClick={() => handleRemoveGridRow(row.id)} className="absolute top-3 -left-6 text-gray-300 hover:text-red-500 opacity-0 group-hover/row:opacity-100 transition-opacity">✕</button>
-                    </td>
-                    {question.gridCols.map(col => (
-                      <td key={col.id} className="py-2 text-center border-y border-gray-100 shadow-sm bg-white">
-                        <div className={`mx-auto w-5 h-5 border-2 border-gray-300 ${question.gridInputType === 'radio' ? 'rounded-full' : 'rounded-md'}`} />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                  {question.gridRows.map((row, rowIndex) => {
+                    const isDuplicate = question.gridRows.some(other => other.id !== row.id && other.text.trim() !== '' && other.text.trim() === row.text.trim());
+                    return (
+                      <tr key={row.id} className="group/row">
+                        <td className="py-2 px-2 relative">
+                          <input 
+                            type="text" value={row.text} placeholder={`行 ${rowIndex + 1}`}
+                            onChange={e => handleUpdateGridRow(row.id, e.target.value)}
+                            className={`w-full bg-transparent border-b transition-colors focus:outline-none py-1 font-bold ${
+                              isDuplicate 
+                                ? 'border-red-500 text-red-600 focus:border-red-600' 
+                                : 'border-transparent focus:border-blue-500 text-gray-700'
+                            }`}
+                          />
+                          <button onClick={() => handleRemoveGridRow(row.id)} className="absolute top-3 -left-6 text-gray-300 hover:text-red-500 opacity-0 group-hover/row:opacity-100 transition-opacity">✕</button>
+                          {isDuplicate && (
+                            <p className="absolute left-2 -bottom-2 text-[8px] text-red-500 font-bold whitespace-nowrap bg-white px-1">重複しています</p>
+                          )}
+                        </td>
+                        {question.gridCols.map(col => (
+                          <td key={col.id} className="py-2 text-center border-y border-gray-100 shadow-sm bg-white">
+                            <div className={`mx-auto w-5 h-5 border-2 border-gray-300 ${question.gridInputType === 'radio' ? 'rounded-full' : 'rounded-md'}`} />
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
                 <tr>
                   <td className="pt-4 pl-2">
                     <button onClick={handleAddGridRow} className="text-blue-500 hover:text-blue-700 flex items-center font-bold text-sm">
@@ -560,7 +423,9 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
         currentType={question.type}
         onChangeType={(newType) => onChange({ type: newType })}
         isActive={isActive}
-        onDelete={onDelete} 
+        onDelete={onDelete}
+        question={question}
+        onChange={onChange}
       />
     </div>
   );
