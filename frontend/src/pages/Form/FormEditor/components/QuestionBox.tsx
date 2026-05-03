@@ -85,6 +85,22 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
           <span className="text-sm">選択肢を追加</span>
         </div>
 
+        <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+          <span className="text-sm font-bold text-gray-600">「カスタム回答」を許可する</span>
+          <label className="flex items-center cursor-pointer">
+            <div className="relative">
+              <input 
+                type="checkbox" 
+                className="sr-only" 
+                checked={question.allowCustomAnswer || false}
+                onChange={(e) => onChange({ allowCustomAnswer: e.target.checked })}
+              />
+              <div className={`block w-10 h-6 rounded-full transition-colors ${question.allowCustomAnswer ? 'bg-blue-500' : 'bg-gray-300'}`}></div>
+              <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${question.allowCustomAnswer ? 'transform translate-x-4' : ''}`}></div>
+            </div>
+          </label>
+        </div>
+
         {type === 'checkbox' && (
           <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mt-4">
             <div className="flex items-center justify-between mb-3">

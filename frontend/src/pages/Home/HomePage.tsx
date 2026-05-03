@@ -202,7 +202,7 @@ function RightPanel() {
         </button>
       </div>
       <MyRecentForms />
-      <h3 className="text-xl font-bold m-0 mb-3 mt-8 text-gray-800">Assigned to You</h3>
+      <h3 className="text-xl font-bold m-0 mb-3 mt-8 text-gray-800">Timeline</h3>
       <div>
         <AssignedFormsTimeline />
       </div>

@@ -16,48 +16,37 @@ export default function ProfileEditModal({ isOpen, onClose, questionData, curren
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let initialValue = currentValue;
-    
-    // DBにはテキストが保存されているが、AnswerBoxはIDを期待するため変換する
+    // 選択肢があるタイプ（checkbox, radio, dropdown）の場合、
+    // 現在の選択肢に存在しない「古い値」を除外する
+    // ただし、カスタム回答（allowCustomAnswer）が許可されている場合は、そのまま保持する
+    let cleanedValue = currentValue;
+    const isCustomAllowed = (questionData as any).allowCustomAnswer;
+
     if (questionData.type === 'checkbox') {
       if (Array.isArray(currentValue)) {
-        initialValue = currentValue.map(textVal => {
-          const opt = questionData.options.find(o => o.text === textVal || o.id === textVal);
-          return opt ? opt.id : null;
-        }).filter(v => v !== null);
+        cleanedValue = currentValue.filter(val => 
+          isCustomAllowed || questionData.options.some(opt => opt.text === val)
+        );
+      } else {
+        cleanedValue = [];
       }
     } else if (questionData.type === 'radio' || questionData.type === 'dropdown') {
-      const opt = questionData.options.find(o => o.text === currentValue || o.id === currentValue);
-      initialValue = opt ? opt.id : currentValue;
+      const exists = questionData.options.some(opt => opt.text === currentValue);
+      cleanedValue = (exists || isCustomAllowed) ? currentValue : '';
     }
 
-    setValue(initialValue);
+    setValue(cleanedValue);
     setError(null);
   }, [currentValue, isOpen, questionData]);
 
   if (!isOpen) return null;
 
   const handleSave = async () => {
-    // AnswerBox内部でのバリデーションはAnswerBoxの表示上で行われるが、
-    // 必須チェックや独自チェックなどをここで行うことも可能
     setIsSaving(true);
     setError(null);
     try {
-      let valueToSave = value;
-      // DBに保存する前に、IDからテキストに戻す
-      if (questionData.type === 'checkbox') {
-        if (Array.isArray(value)) {
-          valueToSave = value.map(val => {
-            const opt = questionData.options.find(o => o.id === val);
-            return opt ? opt.text : val;
-          });
-        }
-      } else if (questionData.type === 'radio' || questionData.type === 'dropdown') {
-        const opt = questionData.options.find(o => o.id === value);
-        valueToSave = opt ? opt.text : value;
-      }
-
-      await onSave(questionData.id, valueToSave);
+      // テキスト値をそのままDBに保存する
+      await onSave(questionData.id, value);
       onClose();
     } catch (err: any) {
       setError(err.message || '保存に失敗しました');

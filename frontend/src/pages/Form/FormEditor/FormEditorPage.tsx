@@ -22,6 +22,7 @@ export type QuestionData = {
   type: string;
   isRequired?: boolean;
   options: { id: number; text: string; lucideIcon?: string }[];
+  allowCustomAnswer?: boolean;
   scale: { min: number; max: number; minLabel: string; maxLabel: string };
   gridRows: { id: number; text: string; lucideIcon?: string }[];
   gridCols: { id: number; text: string; lucideIcon?: string }[];
@@ -53,6 +54,7 @@ const createDefaultQuestion = (): QuestionData => ({
   type: 'radio',
   isRequired: false,
   options: [{ id: 1, text: '', lucideIcon: '' }, { id: 2, text: '', lucideIcon: '' }],
+  allowCustomAnswer: false,
   scale: { min: 1, max: 5, minLabel: '', maxLabel: '' },
   gridRows: [{ id: 1, text: '', lucideIcon: '' }],
   gridCols: [{ id: 1, text: '', lucideIcon: '' }],
@@ -196,6 +198,7 @@ export default function FormEditorPage() {
                 options: Array.isArray(q.options?.choices) 
                   ? q.options.choices.map((c: any) => typeof c === 'string' ? { id: crypto.randomUUID(), text: c } : c)
                   : [{ id: crypto.randomUUID(), text: '' }, { id: crypto.randomUUID(), text: '' }],
+                allowCustomAnswer: q.options?.allowCustomAnswer || false,
                 scale: q.options?.scale || { min: 1, max: 5, minLabel: '', maxLabel: '' },
                 gridRows: Array.isArray(q.options?.gridRows)
                   ? q.options.gridRows.map((r: any) => typeof r === 'string' ? { id: crypto.randomUUID(), text: r } : r)
