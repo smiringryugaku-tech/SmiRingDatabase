@@ -9,7 +9,7 @@ const router = Router();
 // ==========================================
 
 // 🌟 メンバーの基本プロフィール情報（一覧用）
-router.get('/api/basic_profile_info', async (req: Request, res: Response) => {
+router.get('/api/basic_profile_info', async (_req: Request, res: Response) => {
   try {
     const { data, error } = await supabase
       .from('basic_profile_info')

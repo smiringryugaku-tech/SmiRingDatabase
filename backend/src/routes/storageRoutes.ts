@@ -121,6 +121,15 @@ router.get('/api/gallery', async (req: Request, res: Response) => {
 
     if (fetchError) throw fetchError;
 
+    // gallery.user_id と basic_profile_info.user_id の間に FK がないため、別途プロフィールを取得してマージ
+    const uniqueUserIds = [...new Set((galleries || []).map(g => g.user_id))];
+    const { data: profiles } = await supabase
+      .from('basic_profile_info')
+      .select('id, name_kanji, name_english')
+      .in('id', uniqueUserIds);
+
+    const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]));
+
     // 各画像の表示用署名付きURL（1時間有効）を生成してフロントに返す
     const galleriesWithUrls = await Promise.all(
       (galleries || []).map(async (item) => {
@@ -129,7 +138,7 @@ router.get('/api/gallery', async (req: Request, res: Response) => {
           Key: item.storage_path,
         });
         const viewUrl = await getSignedUrl(r2, command, { expiresIn: 3600 });
-        return { ...item, view_url: viewUrl };
+        return { ...item, view_url: viewUrl, basic_profile_info: profileMap[item.user_id] ?? null };
       })
     );
 
@@ -177,6 +186,58 @@ router.get('/api/gallery/:id', async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('ギャラリー個別取得エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// ✏️ ギャラリー情報更新 API
+// ==========================================
+router.patch('/api/gallery/:id', async (req: Request, res: Response) => {
+  try {
+    // 🔐 JWT検証
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: '認証トークンがありません' });
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return res.status(401).json({ error: '認証に失敗しました' });
+
+    const { id } = req.params;
+    const { image_type, visibility, description } = req.body;
+
+    // galleryテーブルからレコードを取得（オーナーチェック）
+    const { data: gallery, error: fetchError } = await supabase
+      .from('gallery')
+      .select('id, user_id')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !gallery) {
+      return res.status(404).json({ error: '画像が見つかりません' });
+    }
+
+    // 自分がアップロードした画像のみ編集可能
+    if (gallery.user_id !== user.id) {
+      return res.status(403).json({ error: 'この画像を編集する権限がありません' });
+    }
+
+    // galleryテーブルのレコードを更新
+    const { data: updatedGallery, error: updateError } = await supabase
+      .from('gallery')
+      .update({
+        image_type: image_type !== undefined ? image_type : null,
+        visibility: visibility !== undefined ? visibility : 'organization',
+        description: description !== undefined ? description : null,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    res.json({ message: '画像情報を更新しました', gallery: updatedGallery });
+
+  } catch (error: any) {
+    console.error('ギャラリー情報更新エラー:', error);
     res.status(500).json({ error: error.message });
   }
 });
