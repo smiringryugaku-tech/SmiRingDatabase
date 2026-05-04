@@ -1,17 +1,33 @@
 import React, { useState, useRef, useEffect } from 'react';
 import QuestionMenu from './QuestionMenu';
-import { CircleDot, CheckSquare, SquareChevronDown, LineDotRightHorizontal, LayoutGrid, PenLine, NotebookPen } from 'lucide-react';
+import { CircleDot, CheckSquare, SquareChevronDown, LineDotRightHorizontal, LayoutGrid, PenLine, NotebookPen, GripVertical, GripHorizontal } from 'lucide-react';
+import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import RichTextEditor from '../../../../components/ui/RichTextEditor';
 import type { QuestionData } from '../FormEditorPage';
 
 type QuestionBoxProps = {
   question: QuestionData;
   isActive: boolean;
+  isSortingGlobal?: boolean;
+  isDragging?: boolean;
+  dragHandleProps?: any;
+  onStartSorting?: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onCancelSorting?: () => void;
   onChange: (updates: Partial<QuestionData>) => void;
   onDelete: () => void;
 };
 
-export default function QuestionBox({ question, isActive, onChange, onDelete }: QuestionBoxProps) {
+export default function QuestionBox({ 
+  question, 
+  isActive, 
+  isSortingGlobal, 
+  isDragging,
+  dragHandleProps, 
+  onStartSorting,
+  onCancelSorting,
+  onChange, 
+  onDelete 
+}: QuestionBoxProps) {
   
   const questionTypeIcons: Record<string, React.ElementType> = {
     radio: CircleDot, 
@@ -37,6 +53,30 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
   const handleUpdateGridCol = (id: number, text: string) => onChange({ gridCols: question.gridCols.map(c => c.id === id ? { ...c, text } : c) });
   const handleRemoveGridCol = (id: number) => { if (question.gridCols.length > 1) onChange({ gridCols: question.gridCols.filter(c => c.id !== id) }); };
 
+  // --- D&D ロジック ---
+  const handleDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+    const { source, destination, type } = result;
+    if (source.index === destination.index) return;
+
+    if (type === 'options') {
+      const newOptions = Array.from(question.options);
+      const [moved] = newOptions.splice(source.index, 1);
+      newOptions.splice(destination.index, 0, moved);
+      onChange({ options: newOptions });
+    } else if (type === 'gridRows') {
+      const newRows = Array.from(question.gridRows);
+      const [moved] = newRows.splice(source.index, 1);
+      newRows.splice(destination.index, 0, moved);
+      onChange({ gridRows: newRows });
+    } else if (type === 'gridCols') {
+      const newCols = Array.from(question.gridCols);
+      const [moved] = newCols.splice(source.index, 1);
+      newCols.splice(destination.index, 0, moved);
+      onChange({ gridCols: newCols });
+    }
+  };
+
   // --- スケールのスクロール制御（UIの見た目だけなのでローカルState） ---
   const scaleRef = useRef<HTMLDivElement>(null);
   const [showRightShadow, setShowRightShadow] = useState(false);
@@ -57,57 +97,81 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
   // --- UI: ラジオ・チェックボックス ---
   const renderListOptions = (type: string) => {
     return (
-      <div className="pt-4 space-y-2">
-        {question.options.map((opt, index) => {
-          const isDuplicate = question.options.some(other => other.id !== opt.id && other.text.trim() !== '' && other.text.trim() === opt.text.trim());
-          return (
-            <div key={opt.id} className="space-y-1">
-              <div className="flex items-center space-x-3 group/option">
-                {type === 'radio' && <div className={`w-5 h-5 border-2 ${isDuplicate ? 'border-red-300' : 'border-gray-300'} rounded-full flex-shrink-0`} />}
-                {type === 'checkbox' && <div className={`w-5 h-5 border-2 ${isDuplicate ? 'border-red-300' : 'border-gray-300'} rounded-md flex-shrink-0`} />}
-                
-                <input 
-                  type="text" 
-                  value={opt.text}
-                  placeholder={`選択肢 ${index + 1}`}
-                  onChange={(e) => handleUpdateOption(opt.id, e.target.value)}
-                  className={`flex-1 text-sm border-b transition-colors focus:outline-none py-1 ${
-                    isDuplicate 
-                      ? 'border-red-500 text-red-600 focus:border-red-600' 
-                      : 'border-transparent focus:border-blue-500 hover:border-gray-200 text-gray-700'
-                  }`} 
-                />
-                <button 
-                  onClick={() => handleRemoveOption(opt.id)}
-                  className="text-gray-300 hover:text-red-500 opacity-0 group-hover/option:opacity-100 transition-opacity"
-                >
-                  ✕
-                </button>
-              </div>
-              {isDuplicate && (
-                <p className="text-[10px] text-red-500 font-bold pl-8 animate-in fade-in slide-in-from-top-1">
-                  「{opt.text}」はすでに存在します
-                </p>
-              )}
+      <Droppable droppableId={`options-${question.id}`} type="options">
+        {(provided) => (
+          <div 
+            className="pt-4 space-y-2"
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+          >
+            {question.options.map((opt, index) => {
+              const isDuplicate = question.options.some(other => other.id !== opt.id && other.text.trim() !== '' && other.text.trim() === opt.text.trim());
+              return (
+                <Draggable key={opt.id.toString()} draggableId={opt.id.toString()} index={index}>
+                  {(provided, snapshot) => (
+                    <div 
+                      ref={provided.innerRef}
+                      {...provided.draggableProps}
+                      style={provided.draggableProps.style}
+                      className={`space-y-1 ${snapshot.isDragging ? 'opacity-80 bg-white rounded-lg shadow-md z-50 p-2 -mx-2' : ''}`}
+                    >
+                      <div className="flex items-center space-x-3 group/option">
+                        <div 
+                          {...provided.dragHandleProps} 
+                          className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing transition-colors"
+                        >
+                          <GripVertical className="w-4 h-4" />
+                        </div>
+                        {type === 'radio' && <div className={`w-5 h-5 border-2 ${isDuplicate ? 'border-red-300' : 'border-gray-300'} rounded-full flex-shrink-0`} />}
+                        {type === 'checkbox' && <div className={`w-5 h-5 border-2 ${isDuplicate ? 'border-red-300' : 'border-gray-300'} rounded-md flex-shrink-0`} />}
+                        
+                        <input 
+                          type="text" 
+                          value={opt.text}
+                          placeholder={`選択肢 ${index + 1}`}
+                          onChange={(e) => handleUpdateOption(opt.id, e.target.value)}
+                          className={`flex-1 text-sm border-b transition-colors focus:outline-none py-1 ${
+                            isDuplicate 
+                              ? 'border-red-500 text-red-600 focus:border-red-600' 
+                              : 'border-transparent focus:border-blue-500 hover:border-gray-200 text-gray-700'
+                          }`} 
+                        />
+                        <button 
+                          onClick={() => handleRemoveOption(opt.id)}
+                          className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      {isDuplicate && (
+                        <p className="text-[10px] text-red-500 font-bold pl-12 animate-in fade-in slide-in-from-top-1">
+                          「{opt.text}」はすでに存在します
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </Draggable>
+              );
+            })}
+            {provided.placeholder}
+            <div className="flex items-center space-x-2 pt-2 cursor-pointer text-blue-500 hover:text-blue-700 pl-7" onClick={handleAddOption}>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              <span className="text-sm font-bold">選択肢を追加</span>
             </div>
-          );
-        })}
-        <div className="flex items-center space-x-2 pt-2 cursor-pointer text-blue-500 hover:text-blue-700" onClick={handleAddOption}>
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          <span className="text-sm font-bold">選択肢を追加</span>
-        </div>
-        {/* 選択肢ごとのカスタム設定がある場合の表示バッジ */}
-        {question.allowCustomAnswer && (
-          <p className="text-xs text-blue-500 font-medium pt-1 pl-8">＋ カスタム回答が有効</p>
+            {/* 選択肢ごとのカスタム設定がある場合の表示バッジ */}
+            {question.allowCustomAnswer && (
+              <p className="text-xs text-blue-500 font-medium pt-1 pl-12">＋ カスタム回答が有効</p>
+            )}
+            {question.type === 'checkbox' && question.checkboxValidation?.enabled && (
+              <p className="text-xs text-orange-500 font-medium pt-1 pl-12">
+                ※ 選択数の制限: {question.checkboxValidation.min !== '' ? `${question.checkboxValidation.min}個以上` : ''}{question.checkboxValidation.min !== '' && question.checkboxValidation.max !== '' ? ' / ' : ''}{question.checkboxValidation.max !== '' ? `${question.checkboxValidation.max}個以下` : ''}
+              </p>
+            )}
+          </div>
         )}
-        {question.type === 'checkbox' && question.checkboxValidation?.enabled && (
-          <p className="text-xs text-orange-500 font-medium pt-1 pl-8">
-            ※ 選択数の制限: {question.checkboxValidation.min !== '' ? `${question.checkboxValidation.min}個以上` : ''}{question.checkboxValidation.min !== '' && question.checkboxValidation.max !== '' ? ' / ' : ''}{question.checkboxValidation.max !== '' ? `${question.checkboxValidation.max}個以下` : ''}
-          </p>
-        )}
-      </div>
+      </Droppable>
     );
   };
 
@@ -120,37 +184,61 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
             <span className="text-sm text-gray-500">回答者はここから1つ選びます</span>
             <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
           </div>
-          <div className="p-2 space-y-1 bg-white">
-            {question.options.map((opt, index) => {
-              const isDuplicate = question.options.some(other => other.id !== opt.id && other.text.trim() !== '' && other.text.trim() === opt.text.trim());
-              return (
-                <div key={opt.id} className="space-y-1">
-                  <div className="flex items-center space-x-3 group/option p-2 hover:bg-gray-50 rounded-md transition-colors">
-                    <span className={`font-bold w-5 text-right ${isDuplicate ? 'text-red-300' : 'text-gray-400'}`}>{index + 1}.</span>
-                    <input 
-                      type="text" value={opt.text} placeholder={`選択肢 ${index + 1}`}
-                      onChange={(e) => handleUpdateOption(opt.id, e.target.value)}
-                      className={`flex-1 text-sm bg-transparent border-b transition-colors focus:outline-none py-1 ${
-                        isDuplicate 
-                          ? 'border-red-500 text-red-600 focus:border-red-600' 
-                          : 'border-transparent focus:border-blue-500'
-                      }`} 
-                    />
-                    <button onClick={() => handleRemoveOption(opt.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover/option:opacity-100 transition-opacity">✕</button>
-                  </div>
-                  {isDuplicate && (
-                    <p className="text-[10px] text-red-500 font-bold pl-10 animate-in fade-in slide-in-from-top-1">
-                      「{opt.text}」はすでに存在します
-                    </p>
-                  )}
+          <Droppable droppableId={`dropdown-${question.id}`} type="options">
+            {(provided) => (
+              <div 
+                className="p-2 space-y-1 bg-white"
+                ref={provided.innerRef}
+                {...provided.droppableProps}
+              >
+                {question.options.map((opt, index) => {
+                  const isDuplicate = question.options.some(other => other.id !== opt.id && other.text.trim() !== '' && other.text.trim() === opt.text.trim());
+                  return (
+                    <Draggable key={opt.id.toString()} draggableId={opt.id.toString()} index={index}>
+                      {(provided, snapshot) => (
+                        <div 
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          style={provided.draggableProps.style}
+                          className={`space-y-1 ${snapshot.isDragging ? 'opacity-80 bg-white rounded-lg shadow-md z-50' : ''}`}
+                        >
+                          <div className={`flex items-center space-x-3 group/option p-2 hover:bg-gray-50 rounded-md transition-colors ${snapshot.isDragging ? 'bg-gray-50' : ''}`}>
+                            <div 
+                              {...provided.dragHandleProps} 
+                              className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing transition-colors"
+                            >
+                              <GripVertical className="w-4 h-4" />
+                            </div>
+                            <span className={`font-bold w-5 text-right flex-shrink-0 ${isDuplicate ? 'text-red-300' : 'text-gray-400'}`}>{index + 1}.</span>
+                            <input 
+                              type="text" value={opt.text} placeholder={`選択肢 ${index + 1}`}
+                              onChange={(e) => handleUpdateOption(opt.id, e.target.value)}
+                              className={`flex-1 text-sm bg-transparent border-b transition-colors focus:outline-none py-1 ${
+                                isDuplicate 
+                                  ? 'border-red-500 text-red-600 focus:border-red-600' 
+                                  : 'border-transparent focus:border-blue-500'
+                              }`} 
+                            />
+                            <button onClick={() => handleRemoveOption(opt.id)} className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">✕</button>
+                          </div>
+                          {isDuplicate && (
+                            <p className="text-[10px] text-red-500 font-bold pl-16 animate-in fade-in slide-in-from-top-1">
+                              「{opt.text}」はすでに存在します
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </Draggable>
+                  );
+                })}
+                {provided.placeholder}
+                <div className="flex items-center space-x-2 pt-2 cursor-pointer text-blue-500 hover:text-blue-700 p-2 pl-9" onClick={handleAddOption}>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                  <span className="text-sm font-bold">選択肢を追加</span>
                 </div>
-              );
-            })}
-            <div className="flex items-center space-x-2 pt-2 cursor-pointer text-blue-500 hover:text-blue-700 p-2" onClick={handleAddOption}>
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-              <span className="text-sm font-bold">選択肢を追加</span>
-            </div>
-          </div>
+              </div>
+            )}
+          </Droppable>
         </div>
       </div>
     );
@@ -289,69 +377,117 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
 
           <div className="overflow-x-auto px-6 pb-3">
             <table className="w-full text-sm text-left border-separate border-spacing-y-2 border-spacing-x-4">
-              <thead>
-                <tr>
-                  <th className="pb-4 min-w-[120px]"></th>
-                  {question.gridCols.map((col, index) => {
-                    const isDuplicate = question.gridCols.some(other => other.id !== col.id && other.text.trim() !== '' && other.text.trim() === col.text.trim());
-                    return (
-                      <th key={col.id} className="pb-4 min-w-[100px] text-center group/col relative">
-                        <input 
-                          type="text" value={col.text} placeholder={`列 ${index + 1}`}
-                          onChange={e => handleUpdateGridCol(col.id, e.target.value)}
-                          className={`w-full text-center bg-transparent border-b transition-colors focus:outline-none pb-1 font-bold ${
-                            isDuplicate 
-                              ? 'border-red-500 text-red-600 focus:border-red-600' 
-                              : 'border-gray-300 focus:border-blue-500 text-gray-700'
-                          }`}
-                        />
-                        <button onClick={() => handleRemoveGridCol(col.id)} className="absolute -top-4 right-0 text-gray-300 hover:text-red-500 opacity-0 group-hover/col:opacity-100 transition-opacity">✕</button>
-                        {isDuplicate && (
-                          <p className="absolute left-1/2 -translate-x-1/2 -bottom-0 text-[8px] text-red-500 font-bold whitespace-nowrap bg-white px-1">重複</p>
-                        )}
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                  {question.gridRows.map((row, rowIndex) => {
-                    const isDuplicate = question.gridRows.some(other => other.id !== row.id && other.text.trim() !== '' && other.text.trim() === row.text.trim());
-                    return (
-                      <tr key={row.id} className="group/row">
-                        <td className="py-2 px-2 relative">
-                          <input 
-                            type="text" value={row.text} placeholder={`行 ${rowIndex + 1}`}
-                            onChange={e => handleUpdateGridRow(row.id, e.target.value)}
-                            className={`w-full bg-transparent border-b transition-colors focus:outline-none py-1 font-bold ${
-                              isDuplicate 
-                                ? 'border-red-500 text-red-600 focus:border-red-600' 
-                                : 'border-transparent focus:border-blue-500 text-gray-700'
-                            }`}
-                          />
-                          <button onClick={() => handleRemoveGridRow(row.id)} className="absolute top-3 -left-6 text-gray-300 hover:text-red-500 opacity-0 group-hover/row:opacity-100 transition-opacity">✕</button>
-                          {isDuplicate && (
-                            <p className="absolute left-2 -bottom-2 text-[8px] text-red-500 font-bold whitespace-nowrap bg-white px-1">重複しています</p>
-                          )}
-                        </td>
-                        {question.gridCols.map(col => (
-                          <td key={col.id} className="py-2 text-center border-y border-gray-100 shadow-sm bg-white">
-                            <div className={`mx-auto w-5 h-5 border-2 border-gray-300 ${question.gridInputType === 'radio' ? 'rounded-full' : 'rounded-md'}`} />
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  })}
-                <tr>
-                  <td className="pt-4 pl-2">
-                    <button onClick={handleAddGridRow} className="text-blue-500 hover:text-blue-700 flex items-center font-bold text-sm">
-                      <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                      行を追加
-                    </button>
-                  </td>
-                  <td colSpan={question.gridCols.length} />
-                </tr>
-              </tbody>
+              <Droppable droppableId={`gridCols-${question.id}`} direction="horizontal" type="gridCols">
+                {(provided) => (
+                  <thead>
+                    <tr ref={provided.innerRef} {...provided.droppableProps}>
+                      <th className="pb-4 min-w-[120px]"></th>
+                      {question.gridCols.map((col, index) => {
+                        const isDuplicate = question.gridCols.some(other => other.id !== col.id && other.text.trim() !== '' && other.text.trim() === col.text.trim());
+                        return (
+                          <Draggable key={`col-${col.id.toString()}`} draggableId={`col-${col.id.toString()}`} index={index}>
+                            {(provided, snapshot) => (
+                              <th 
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                style={provided.draggableProps.style}
+                                className={`pb-4 min-w-[100px] text-center group/col relative ${snapshot.isDragging ? 'opacity-80 bg-blue-50 z-50 rounded-lg shadow-sm' : ''}`}
+                              >
+                                <div className="flex flex-col items-center gap-1">
+                                  <div 
+                                    {...provided.dragHandleProps} 
+                                    className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing transition-colors"
+                                    title="列を移動"
+                                  >
+                                    <GripHorizontal className="w-4 h-4" />
+                                  </div>
+                                  <div className="flex items-center gap-1 w-full">
+                                    <input 
+                                      type="text" value={col.text} placeholder={`列 ${index + 1}`}
+                                      onChange={e => handleUpdateGridCol(col.id, e.target.value)}
+                                      className={`w-full text-center bg-transparent border-b transition-colors focus:outline-none pb-1 font-bold ${
+                                        isDuplicate 
+                                          ? 'border-red-500 text-red-600 focus:border-red-600' 
+                                          : 'border-gray-300 focus:border-blue-500 text-gray-700'
+                                      }`}
+                                    />
+                                    <button onClick={() => handleRemoveGridCol(col.id)} className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">✕</button>
+                                  </div>
+                                </div>
+                                {isDuplicate && (
+                                  <p className="absolute left-1/2 -translate-x-1/2 -bottom-2 text-[8px] text-red-500 font-bold whitespace-nowrap bg-white px-1">重複</p>
+                                )}
+                              </th>
+                            )}
+                          </Draggable>
+                        );
+                      })}
+                      {provided.placeholder}
+                    </tr>
+                  </thead>
+                )}
+              </Droppable>
+              <Droppable droppableId={`gridRows-${question.id}`} type="gridRows">
+                {(provided) => (
+                  <tbody ref={provided.innerRef} {...provided.droppableProps}>
+                      {question.gridRows.map((row, rowIndex) => {
+                        const isDuplicate = question.gridRows.some(other => other.id !== row.id && other.text.trim() !== '' && other.text.trim() === row.text.trim());
+                        return (
+                          <Draggable key={`row-${row.id.toString()}`} draggableId={`row-${row.id.toString()}`} index={rowIndex}>
+                            {(provided, snapshot) => (
+                              <tr 
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                style={provided.draggableProps.style}
+                                className={`group/row ${snapshot.isDragging ? 'opacity-80 bg-blue-50 z-50 shadow-sm' : ''}`}
+                              >
+                                <td className="py-2 px-2 relative">
+                                  <div className="flex items-center gap-2">
+                                    <div 
+                                      {...provided.dragHandleProps} 
+                                      className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing transition-colors flex-shrink-0"
+                                      title="行を移動"
+                                    >
+                                      <GripVertical className="w-4 h-4" />
+                                    </div>
+                                    <input 
+                                      type="text" value={row.text} placeholder={`行 ${rowIndex + 1}`}
+                                      onChange={e => handleUpdateGridRow(row.id, e.target.value)}
+                                      className={`flex-1 bg-transparent border-b transition-colors focus:outline-none py-1 font-bold ${
+                                        isDuplicate 
+                                          ? 'border-red-500 text-red-600 focus:border-red-600' 
+                                          : 'border-transparent focus:border-blue-500 text-gray-700'
+                                      }`}
+                                    />
+                                    <button onClick={() => handleRemoveGridRow(row.id)} className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">✕</button>
+                                  </div>
+                                  {isDuplicate && (
+                                    <p className="absolute left-10 -bottom-1 text-[8px] text-red-500 font-bold whitespace-nowrap bg-white px-1">重複しています</p>
+                                  )}
+                                </td>
+                                {question.gridCols.map(col => (
+                                  <td key={col.id} className="py-2 text-center border-y border-gray-100 shadow-sm bg-white">
+                                    <div className={`mx-auto w-5 h-5 border-2 border-gray-300 ${question.gridInputType === 'radio' ? 'rounded-full' : 'rounded-md'}`} />
+                                  </td>
+                                ))}
+                              </tr>
+                            )}
+                          </Draggable>
+                        );
+                      })}
+                    {provided.placeholder}
+                    <tr>
+                      <td className="pt-4 pl-2">
+                        <button onClick={handleAddGridRow} className="text-blue-500 hover:text-blue-700 flex items-center font-bold text-sm pl-7">
+                          <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                          行を追加
+                        </button>
+                      </td>
+                      <td colSpan={question.gridCols.length} />
+                    </tr>
+                  </tbody>
+                )}
+              </Droppable>
             </table>
           </div>
         </div>
@@ -360,10 +496,62 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
   };
 
   return (
-    <div className={`relative w-full bg-white rounded-xl shadow-sm p-6 group focus-within:ring-2 focus-within:ring-blue-200 transition-all ${isActive ? 'border-3 border-blue-500' : 'border-3 border-gray-200'}`}>
-      
-      {(() => {
-        const Icon = questionTypeIcons[question.type];
+    <DragDropContext onDragEnd={handleDragEnd}>
+      <div className={`relative w-full transition-all duration-150 ease-in-out 
+        ${isActive && !isSortingGlobal ? 'border-3 border-blue-500' : 'border-3 border-gray-200'} 
+        ${isSortingGlobal ? 'shadow-lg border-blue-400 scale-[0.98]' : 'shadow-sm p-6 pt-8 group focus-within:ring-2 focus-within:ring-blue-200'}
+        ${isDragging ? 'bg-blue-200 ring-2 ring-blue-400 z-[100]' : 'bg-white'}
+        rounded-xl`}>
+        
+        {/* 全体移動用のメインハンドル (絶対にアンマウントさせない) */}
+        <div className={`absolute top-0 left-0 right-0 flex justify-center items-center group/main-handle z-50 pointer-events-none ${isSortingGlobal ? 'h-full bg-transparent' : 'h-8'}`}>
+          <div 
+            {...dragHandleProps}
+            onPointerDown={(e) => {
+              onStartSorting?.(e);
+              dragHandleProps?.onPointerDown?.(e);
+            }}
+            onPointerUp={() => {
+              // ドラッグが行われず、ただクリックして離しただけの場合はキャンセル
+              if (!isDragging) {
+                onCancelSorting?.();
+              }
+            }}
+            className={`pointer-events-auto cursor-move flex items-center justify-center transition-all ${isSortingGlobal ? 'w-full h-full opacity-0' : 'w-16 h-1.5 rounded-full bg-gray-100 group-hover/main-handle:bg-blue-100 group-hover/main-handle:w-20'}`}
+            title="質問を移動"
+          >
+            {!isSortingGlobal && (
+              <GripHorizontal className="w-4 h-4 text-gray-300 group-hover/main-handle:text-blue-400" />
+            )}
+          </div>
+        </div>
+
+        {isSortingGlobal ? (
+          /* --- コンパクト表示 --- */
+          <div className="w-full px-6 py-3 flex items-center gap-5 pointer-events-none">
+            <div className="text-blue-500">
+              <GripVertical className="w-6 h-6" />
+            </div>
+            <div className="flex items-center gap-4 flex-1 min-w-0">
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                {(() => {
+                  const Icon = questionTypeIcons[question.type];
+                  return <Icon className="w-6 h-6 text-blue-600" />;
+                })()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-blue-500 uppercase tracking-wider mb-0.5">{question.type}</p>
+                <h4 className="font-bold text-gray-800 truncate text-lg">
+                  {question.title || '無題の質問'}
+                </h4>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* --- 通常表示 --- */
+          <>
+            {(() => {
+              const Icon = questionTypeIcons[question.type];
         return Icon ? (
           <div className="absolute top-4 right-4 p-2 bg-blue-50 rounded-lg">
             <Icon className="w-5 h-5 text-blue-400" strokeWidth={2} />
@@ -419,14 +607,17 @@ export default function QuestionBox({ question, isActive, onChange, onDelete }: 
         </div>
       </div>
 
-      <QuestionMenu 
-        currentType={question.type}
-        onChangeType={(newType) => onChange({ type: newType })}
-        isActive={isActive}
-        onDelete={onDelete}
-        question={question}
-        onChange={onChange}
-      />
-    </div>
+            <QuestionMenu 
+              currentType={question.type}
+              onChangeType={(newType) => onChange({ type: newType })}
+              isActive={isActive}
+              onDelete={onDelete}
+              question={question}
+              onChange={onChange}
+            />
+          </>
+        )}
+      </div>
+    </DragDropContext>
   );
 }

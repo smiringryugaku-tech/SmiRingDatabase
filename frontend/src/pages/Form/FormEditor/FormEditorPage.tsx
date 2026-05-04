@@ -4,6 +4,7 @@ import QuestionBox from './components/QuestionBox';
 import { FileText, Eye, Send, Globe, AlertTriangle } from 'lucide-react';
 import SendSettings from './components/SendSettings';
 import { supabase } from '../../../lib/supabase';
+import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import FormAnswerUI from '../Answer/components/FormAnswerUI';
 import { validateFormCritical } from './formValidation';
 
@@ -93,6 +94,8 @@ export default function FormEditorPage() {
   const [responseCount, setResponseCount] = useState<number | null>(null);
   // 公開済フォームで致命的エラーがあり自動保存を一時停止しているかどうか
   const [saveBlocked, setSaveBlocked] = useState(false);
+  // 質問自体の並べ替え中かどうか
+  const [isSortingQuestions, setIsSortingQuestions] = useState(false);
 
   // 回答数をバックグラウンドで取得
   useEffect(() => {
@@ -311,6 +314,72 @@ export default function FormEditorPage() {
     setHasUnsavedChanges(true);
   };
 
+  // --- 質問の並べ替えハンドラ ---
+  const handleDragEnd = (result: DropResult) => {
+    setIsSortingQuestions(false);
+    if (!result.destination) return;
+    
+    const { source, destination, draggableId } = result;
+
+    // 移動の有無に関わらず、ドラッグしていた質問に瞬時にフォーカスを合わせる関数
+    const jumpToItem = () => {
+      setActiveQuestionId(draggableId);
+      // 縮小から拡大へのCSSアニメーション（duration-150に変更）に合わせて短い時間でスムーズスクロール
+      setTimeout(() => {
+        const el = document.getElementById(`box-${draggableId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+    };
+
+    // 元の位置に戻しただけの場合もスクロールさせる
+    if (source.index === destination.index) {
+      jumpToItem();
+      return;
+    }
+
+    const newQuestions = Array.from(questions);
+    const [moved] = newQuestions.splice(source.index, 1);
+    newQuestions.splice(destination.index, 0, moved);
+    setQuestions(newQuestions);
+    setHasUnsavedChanges(true);
+    
+    jumpToItem();
+  };
+
+  // --- ドラッグ開始時のスクロール固定（スクロールアンカー） ---
+  const handleStartSorting = (e: React.PointerEvent<HTMLDivElement>, questionId: string) => {
+    const scrollContainer = editorScrollRef.current;
+    const el = document.getElementById(`box-${questionId}`);
+
+    // 縮小アニメーションが始まる前のボックスの位置を記憶する
+    const originalRectTop = el?.getBoundingClientRect().top ?? 0;
+    
+    setIsSortingQuestions(true);
+
+    if (scrollContainer && el) {
+      const startTime = performance.now();
+      
+      // アニメーション中、ボックスが『元の位置』からずれた分だけスクロールで打ち消す
+      const updateScroll = (time: number) => {
+        const rect = el.getBoundingClientRect();
+        // ボックスが元の位置からどれだけずれたか（上にずれた場合 diff < 0）
+        const diff = rect.top - originalRectTop;
+        
+        if (Math.abs(diff) > 0.5) {
+          // 上にずれた分だけスクロール上を減らして元の位置に戻す
+          scrollContainer.scrollTop += diff;
+        }
+
+        if (time - startTime < 200) { // duration-150 より少し長めに追従
+          requestAnimationFrame(updateScroll);
+        }
+      };
+      requestAnimationFrame(updateScroll);
+    }
+  };
+
   const handleEditorScroll = () => {
     if (scrollingPane.current === 'preview') return;
     handleScrollSelection();
@@ -506,22 +575,22 @@ export default function FormEditorPage() {
     <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-0 flex items-stretch justify-between sticky top-0 z-50 shadow-sm flex-shrink-0 h-14">
       
       {/* 左側: 戻るボタン ＆ フォーム名 */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0 flex-1 pr-5">
         <button 
           onClick={() => navigate('/form-list')}
-          className="flex flex-col items-center px-2 py-1 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors" 
+          className="flex flex-col items-center px-2 py-1 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0" 
           title="フォーム一覧へ戻る"
         >
           <FileText className="w-5 h-5" />
           <span className="text-[8px] font-medium text-gray-400 leading-none mt-0.5">フォーム一覧</span>
         </button>
-        <span className="hidden md:block font-bold text-gray-800 max-w-[120px] md:max-w-xs truncate md:text-lg">
+        <span className="hidden md:block font-bold text-gray-800 truncate md:text-lg">
           {title || '無題のフォーム'}
         </span>
       </div>
 
       {/* 中央: 質問 / 回答 タブ (Google Forms風) */}
-      <div className="flex items-stretch gap-0 absolute left-1/2 -translate-x-1/2 h-full">
+      <div className="flex items-stretch gap-0 h-full flex-shrink-0">
         {/* 「質問」タブ */}
         <button
           onClick={() => setViewMode(viewMode === 'preview' ? 'preview' : 'edit')}
@@ -559,23 +628,23 @@ export default function FormEditorPage() {
       </div>
 
       {/* 右側: 保存ステータス ＆ アクションボタン（質問モードの時だけ表示） */}
-      <div className="flex items-center gap-3 md:gap-5">
+      <div className="flex items-center gap-3 md:gap-5 flex-1 justify-end min-w-0 pl-5">
         {isEditorMode && (
           <>
-            <div className="hidden md:block text-xs font-medium">
+            <div className="hidden md:block text-xs font-medium truncate text-right">
               {isSaving ? (
-                <span className="flex items-center gap-1 text-gray-500"><span className="animate-spin text-blue-500">⏳</span> 保存中...</span>
+                <span className="flex items-center gap-1 text-gray-500 justify-end"><span className="animate-spin text-blue-500">⏳</span> 保存中...</span>
               ) : saveBlocked ? (
                 <button 
                   onClick={handleShowErrors}
                   className="flex items-center gap-1 text-orange-500 font-bold hover:text-orange-600 transition-colors"
                 >
-                  <AlertTriangle className="w-3.5 h-3.5" />不備あり—公開を一時停止中
+                  <AlertTriangle className="w-3.5 h-3.5" />不備あり
                 </button>
               ) : lastSavedTime ? (
                 <span className="text-green-600">✓ {lastSavedTime.toLocaleTimeString()}に保存</span>
               ) : (
-                <span className="text-gray-500">変更は自動保存されます</span>
+                <span className="text-gray-500">自動保存されます</span>
               )}
             </div>
 
@@ -598,9 +667,19 @@ export default function FormEditorPage() {
                     setViewMode('send');
                   }
                 }}
-                className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm text-white text-sm ${formStatus === 'published' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                className={`p-2 md:px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm text-white text-sm whitespace-nowrap ${formStatus === 'published' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
               >
-                {formStatus === 'published' ? (<><Globe className="w-4 h-4" />公開済み</>) : (<><Send className="w-4 h-4" />送信</>)}
+                {formStatus === 'published' ? (
+                  <>
+                    <Globe className="w-4 h-4 md:w-5 md:h-5 lg:w-4 lg:h-4" />
+                    <span className="hidden lg:inline">公開済み</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 md:w-5 md:h-5 lg:w-4 lg:h-4" />
+                    <span className="hidden lg:inline">送信</span>
+                  </>
+                )}
               </button>
             </div>
           </>
@@ -636,7 +715,10 @@ export default function FormEditorPage() {
   return (
     <div className="h-full w-full bg-blue-50 flex flex-col overflow-hidden">
       
-      {toolbar}
+      <DragDropContext 
+        onDragEnd={handleDragEnd}
+      >
+        {toolbar}
 
       {/* --- メインエリア (分割対応) --- */}
       <div className="flex-1 flex overflow-hidden relative">
@@ -661,35 +743,64 @@ export default function FormEditorPage() {
                 onDescriptionChange={handleDescriptionChange}
               />
 
-              {questions.map((question, index) => (
-                <React.Fragment key={question.id}>
-                  <InsertDivider onInsert={() => insertQuestionAt(index)} />
+              <Droppable droppableId="questions-list" type="questions">
+                {(provided) => (
                   <div 
-                    id={`box-${question.id}`}
-                    onClick={() => setActiveQuestionId(question.id)}
-                    className="w-full relative"
+                    ref={provided.innerRef} 
+                    {...provided.droppableProps}
+                    className="space-y-0"
                   >
-                    <QuestionBox
-                      question={question}
-                      isActive={activeQuestionId === question.id}
-                      onChange={(updates) => handleQuestionChange(question.id, updates)}
-                      onDelete={() => deleteQuestion(question.id)} 
-                    />
+                    {questions.map((question, index) => (
+                      <Draggable key={question.id} draggableId={question.id} index={index}>
+                        {(dragProvided, snapshot) => (
+                          <div 
+                            ref={dragProvided.innerRef}
+                            {...dragProvided.draggableProps}
+                            className={`w-full relative ${snapshot.isDragging ? 'z-50' : ''}`}
+                          >
+                            {/* 並べ替え中はインサート用の仕切りを隠す */}
+                            {!isSortingQuestions && (
+                              <InsertDivider onInsert={() => insertQuestionAt(index)} />
+                            )}
+                            <div 
+                              id={`box-${question.id}`}
+                              onClick={() => setActiveQuestionId(question.id)}
+                              className="w-full relative"
+                            >
+                              <QuestionBox
+                                question={question}
+                                isActive={activeQuestionId === question.id}
+                                isSortingGlobal={isSortingQuestions}
+                                isDragging={snapshot.isDragging}
+                                dragHandleProps={dragProvided.dragHandleProps}
+                                onStartSorting={(e) => handleStartSorting(e, question.id)}
+                                onCancelSorting={() => setIsSortingQuestions(false)}
+                                onChange={(updates) => handleQuestionChange(question.id, updates)}
+                                onDelete={() => deleteQuestion(question.id)} 
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
                   </div>
-                </React.Fragment>
-              ))}
+                )}
+              </Droppable>
 
-              <div className="flex justify-center mt-8">
-                <button 
-                  onClick={() => insertQuestionAt(questions.length)}
-                  className="w-14 h-14 bg-white rounded-full shadow-md flex items-center justify-center text-blue-600 hover:bg-blue-600 hover:text-white transition-all transform hover:scale-110 border border-gray-100"
-                  title="一番下に質問を追加"
-                >
-                  <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                </button>
-              </div>
+              {!isSortingQuestions && (
+                <div className="flex justify-center mt-8">
+                  <button 
+                    onClick={() => insertQuestionAt(questions.length)}
+                    className="w-14 h-14 bg-white rounded-full shadow-md flex items-center justify-center text-blue-600 hover:bg-blue-600 hover:text-white transition-all transform hover:scale-110 border border-gray-100"
+                    title="一番下に質問を追加"
+                  >
+                    <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -720,6 +831,7 @@ export default function FormEditorPage() {
         )}
 
       </div>
+      </DragDropContext>
     </div>
   );
 }

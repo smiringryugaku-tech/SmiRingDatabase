@@ -22,6 +22,8 @@ export default function FormResponsesView({ formId }: { formId: string }) {
 
   const [isLoading, setIsLoading] = useState(true);
   const [questions, setQuestions] = useState<QuestionData[]>([]);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [responses, setResponses] = useState<ResponseSummary[]>([]);
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [indexMap, setIndexMap] = useState<Map<string, number>>(new Map());
@@ -34,6 +36,8 @@ export default function FormResponsesView({ formId }: { formId: string }) {
         const formRes = await fetch(`${API_BASE_URL}/api/forms/${formId}`);
         if (formRes.ok) {
           const formData = await formRes.json();
+          setTitle(formData.title || '無題のフォーム');
+          setDescription(formData.description || '');
           setIsAnonymous(formData.allow_anonymous ?? false);
           const mappedQuestions = (formData.questions ?? []).map((q: any) => ({
             ...q,
@@ -85,7 +89,7 @@ export default function FormResponsesView({ formId }: { formId: string }) {
     });
   };
 
-  const tabProps = { formId, questions, responses, indexMap, isAnonymous };
+  const tabProps = { formId, title, description, questions, responses, indexMap, isAnonymous };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">

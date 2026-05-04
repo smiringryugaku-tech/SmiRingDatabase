@@ -296,7 +296,7 @@ router.post('/api/forms/:id/responses/save', async (req: Request, res: Response)
 // ==========================================
 router.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
   const { id: formId } = req.params;
-  const { answers, turnstileToken } = req.body;
+  const { answers, turnstileToken, response_id } = req.body;
 
   try {
     // 🔐 JWT検証
@@ -306,6 +306,11 @@ router.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
     if (authError || !user) return res.status(401).json({ error: '認証に失敗しました' });
     const user_id = user.id;
 
+    // 1. フォーム設定を取得して複数回答の可否を確認
+    const { data: form } = await supabase.from('forms').select('allow_multiple_responses').eq('id', formId).single();
+    const allowMultiple = form?.allow_multiple_responses || false;
+
+    // 2. Turnstile検証
     const verifyResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -314,17 +319,49 @@ router.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
     const verifyData = await verifyResponse.json();
     if (!verifyData.success) return res.status(400).json({ error: 'Bot検知失敗' });
 
+    let finalResponseId = response_id;
+
+    // 3. 複数回答不可の場合、既存の回答（下書き含む）がないか念のため再確認してIDを特定する
+    if (!allowMultiple && !finalResponseId) {
+      const { data: existing } = await supabase
+        .from('form_responses')
+        .select('id')
+        .eq('form_id', formId)
+        .eq('user_id', user_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (existing) {
+        finalResponseId = existing.id;
+      }
+    }
+
+    // 4. form_responses を更新/挿入
+    const upsertData: any = {
+      form_id: formId,
+      user_id: user_id,
+      content: answers,
+      status: 'submitted',
+      submitted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    if (finalResponseId) {
+      upsertData.id = finalResponseId;
+    }
+
     const { error: responseError } = await supabase
       .from('form_responses')
-      .upsert({
-        form_id: formId,
-        user_id: user_id,
-        content: answers,
-        status: 'submitted',
-        submitted_at: new Date().toISOString()
-      }, { onConflict: 'form_id,user_id' });
+      .upsert(upsertData);
 
     if (responseError) throw responseError;
+
+    // 5. 個別の回答データ(answersテーブル)の同期
+    // 上書きの場合は、一度このユーザーのこのフォームへの古い回答を削除する（重複防止）
+    if (!allowMultiple) {
+      await supabase.from('answers').delete().eq('form_id', formId).eq('user_id', user_id);
+    }
 
     const answerRecords = Object.entries(answers).map(([qId, value]) => ({
       form_id: formId,
