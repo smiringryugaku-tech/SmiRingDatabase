@@ -187,6 +187,7 @@ export default function FormEditorPage() {
             .from('form_questions')
             .select('*, questions(*)')
             .eq('form_id', urlId)
+            .eq('is_deleted', false)
             .order('order_index', { ascending: true });
 
           if (qLinks && qLinks.length > 0) {
@@ -400,7 +401,7 @@ export default function FormEditorPage() {
       
       alert(message);
       setViewMode('edit'); 
-    } catch (err) {
+    } catch (_err) {
       alert('エラーが発生しました');
     } finally {
       setIsSaving(false);

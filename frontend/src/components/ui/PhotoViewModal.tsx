@@ -1,0 +1,244 @@
+import { useEffect, useRef, useState } from 'react';
+import { supabase } from '../../lib/supabase';
+import { API_BASE_URL } from '../../config';
+import PhotoEditModal from './PhotoEditModal';
+
+type Props = {
+  isOpen: boolean;
+  imageUrl: string | null;
+  onClose: () => void;
+  description?: string | null;
+  isOwner?: boolean; // 自分が投稿した写真かどうか
+  photo?: {
+    id: string;
+    image_type: string | null;
+    visibility: string;
+    description: string | null;
+    view_url: string;
+  } | null;
+  onPhotoUpdated?: () => void;
+  onPhotoDeleted?: () => void;
+};
+
+export default function PhotoViewModal({ isOpen, imageUrl, onClose, description, isOwner, photo, onPhotoUpdated, onPhotoDeleted }: Props) {
+  const [isVisible, setIsVisible] = useState(false);
+  
+  // 編集モーダルと削除確認モーダルの状態
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // stale closure を防ぐため、最新の onClose を ref で保持する
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // モーダルの開閉に応じて URL ハッシュと body スクロールを制御する
+  useEffect(() => {
+    if (isOpen) {
+      setIsVisible(true);
+      document.body.style.overflow = 'hidden';
+
+      // まだ #photo が付いていない場合のみ履歴を積む
+      if (window.location.hash !== '#photo') {
+        window.history.pushState(
+          { modal: 'photoView' },
+          '',
+          window.location.pathname + window.location.search + '#photo'
+        );
+      }
+    } else {
+      setIsVisible(false);
+      document.body.style.overflow = 'unset';
+    }
+
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen]);
+
+  // 戻るボタン（popstate）でモーダルを閉じる
+  useEffect(() => {
+    const handlePopState = () => {
+      // ハッシュが #photo でなくなったら閉じる
+      if (window.location.hash !== '#photo') {
+        onCloseRef.current();
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []); // 依存配列は空 → マウント時に1回だけ登録し、ref で最新の onClose を参照
+
+  // × ボタン: ハッシュを外すだけ（popstate が発火して上の処理で onClose が呼ばれる）
+  const handleCloseButton = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.location.hash === '#photo') {
+      // history.back() は使わず、ハッシュだけ書き換える
+      // → 前のページに飛ばずに、popstate だけ発火させる
+      window.history.back();
+    } else {
+      onCloseRef.current();
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!photo) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('認証トークンがありません');
+
+      const response = await fetch(`${API_BASE_URL}/api/gallery/${photo.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || '削除に失敗しました');
+      }
+
+      setIsDeleteConfirmOpen(false);
+      if (onPhotoDeleted) onPhotoDeleted();
+      onClose(); // モーダルも閉じる
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : '削除に失敗しました');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  if (!isOpen || !imageUrl) return null;
+
+  return (
+    // 背景クリックは何もしない
+    <div
+      className={`fixed inset-0 z-[100] flex items-center justify-center bg-white/95 backdrop-blur-sm transition-opacity duration-300 ${
+        isVisible ? 'opacity-100' : 'opacity-0'
+      }`}
+    >
+      {/* 閉じるボタン */}
+      <button
+        onClick={handleCloseButton}
+        className="absolute top-6 right-6 p-2 bg-gray-100/50 hover:bg-gray-200 rounded-full text-gray-600 transition-colors z-10"
+        aria-label="閉じる"
+      >
+        <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      {/* 画像コンテナ（クリックしても何もしない） */}
+      <div
+        className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center justify-center animate-in zoom-in-95 duration-300 group"
+      >
+        <img
+          src={imageUrl}
+          alt="View"
+          className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+        />
+
+        {/* 自分の写真の場合のみ、ホバー時に編集・削除ボタンを表示 */}
+        {isOwner && (
+          <div className="absolute top-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            {/* 編集ボタン */}
+            <button
+              onClick={() => setIsEditModalOpen(true)}
+              className="p-2 bg-white/90 hover:bg-white text-blue-600 rounded-lg shadow-sm backdrop-blur-sm transition-colors"
+              title="編集"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </button>
+            {/* 削除ボタン */}
+            <button
+              onClick={() => setIsDeleteConfirmOpen(true)}
+              className="p-2 bg-white/90 hover:bg-white text-red-600 rounded-lg shadow-sm backdrop-blur-sm transition-colors"
+              title="削除"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {description && (
+          <p className="mt-4 text-gray-800 font-medium text-lg text-center max-w-2xl bg-white/80 px-4 py-2 rounded-xl shadow-sm">
+            {description}
+          </p>
+        )}
+      </div>
+
+      {/* 削除確認モーダル */}
+      {isDeleteConfirmOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col p-6 text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+              <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h3 className="text-lg leading-6 font-medium text-gray-900 mb-2">削除しますか？</h3>
+            <div className="mt-2 text-sm text-gray-500 mb-6 text-left space-y-2">
+              <p>この操作は取り消せません。</p>
+              <p>写真データは完全に削除され、このアプリ内で使われているすべての場所から消去されます。</p>
+            </div>
+            
+            {deleteError && (
+              <p className="text-red-500 text-sm mb-4">{deleteError}</p>
+            )}
+
+            <div className="flex gap-3 justify-center">
+              <button
+                type="button"
+                className="w-full inline-flex justify-center rounded-xl border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:text-sm transition-colors"
+                onClick={() => setIsDeleteConfirmOpen(false)}
+                disabled={isDeleting}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="w-full inline-flex justify-center rounded-xl border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed items-center gap-2"
+                onClick={handleDeleteConfirm}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    削除中...
+                  </>
+                ) : (
+                  '削除する'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 編集モーダル */}
+      <PhotoEditModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        photo={photo ?? null}
+        onSuccess={() => {
+          if (onPhotoUpdated) onPhotoUpdated();
+          onClose(); // 更新後、表示用モーダルも閉じるか、そのままにするか。今回は閉じる。
+        }}
+      />
+    </div>
+  );
+}

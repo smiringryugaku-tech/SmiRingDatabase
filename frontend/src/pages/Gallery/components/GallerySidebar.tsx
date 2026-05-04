@@ -1,4 +1,22 @@
-export default function GallerySidebar() {
+type Props = {
+  searchQuery: string;
+  setSearchQuery: (val: string) => void;
+  filterType: string;
+  setFilterType: (val: string) => void;
+  filterPerson: string;
+  setFilterPerson: (val: string) => void;
+  photos: any[];
+};
+
+export default function GallerySidebar({
+  searchQuery,
+  setSearchQuery,
+  filterType,
+  setFilterType,
+  filterPerson,
+  setFilterPerson,
+  photos,
+}: Props) {
   return (
     // md:flex でPC画面の時は表示し、w-80 (320px) くらいで固定します（全体の1/3ほどのイメージ）
     <aside className="hidden md:flex flex-col w-80 flex-shrink-0 bg-gray-50 border-r border-gray-200 p-6 h-full overflow-y-auto">
@@ -17,30 +35,52 @@ export default function GallerySidebar() {
             type="text"
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             placeholder="Search photos..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
       </div>
 
-      {/* フィルター群 (プレースホルダー) */}
+      {/* フィルター群 */}
       <div className="flex-1 space-y-8">
-        {/* Preset */}
-        <div>
-          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Presets</h3>
-          <button className="w-full flex items-center px-4 py-3 bg-blue-100 text-blue-700 rounded-lg font-bold transition-colors hover:bg-blue-200">
-            <span className="mr-2">🔥</span> Popular
-          </button>
-        </div>
-
-        {/* 今後追加されるスライダーなどのダミーUI */}
         <div>
           <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">
-            Advanced Filters
+            Filters
           </h3>
           <div className="space-y-4">
-            {/* ダミーのアコーディオンっぽいもの */}
-             <div className="h-12 bg-gray-200/50 rounded-lg border border-gray-200 animate-pulse"></div>
-             <div className="h-12 bg-gray-200/50 rounded-lg border border-gray-200 animate-pulse"></div>
-             <div className="h-24 bg-gray-200/50 rounded-lg border border-gray-200 animate-pulse"></div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">種類</label>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="all">すべての種類</option>
+                <option value="portrait">人物</option>
+                <option value="landscape">風景</option>
+                <option value="event">イベント</option>
+                <option value="extracurricular">課外活動</option>
+                <option value="academic">学業</option>
+                <option value="food">食事</option>
+                <option value="daily">日常</option>
+                <option value="other">その他</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">人</label>
+              <select
+                value={filterPerson}
+                onChange={(e) => setFilterPerson(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="all">すべての人</option>
+                {Array.from(new Set(photos.map(p => p.user_id))).map(id => {
+                  const p = photos.find(ph => ph.user_id === id);
+                  const name = (p?.basic_profile_info as any)?.name_english || 'Unknown';
+                  return <option key={id} value={id}>{name}</option>;
+                })}
+              </select>
+            </div>
           </div>
         </div>
       </div>

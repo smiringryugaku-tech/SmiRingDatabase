@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import HomeSearchBar from '../Search/SearchBar';
+import PhotoViewModal from '../../components/ui/PhotoViewModal';
 import { 
   Users, 
   Image as ImageIcon, 
@@ -63,14 +64,14 @@ function HomeQuickActionButtons() {
   };
 
   return (
-    <div className="flex justify-center gap-4 mb-12 flex-wrap">
+    <div className="flex justify-center gap-3 sm:gap-4 mb-12 w-full">
       <QuickActionButton
         label="Members"
         onClick={() => navigate('/members')}
         icon={<Users className="w-5 h-5 text-blue-600" />}
       />
       <QuickActionButton
-        label="Gallery (Coming Soon)"
+        label="Gallery"
         onClick={() => navigate('/gallery')}
         icon={<ImageIcon className="w-5 h-5 text-blue-600" />}
       />
@@ -87,10 +88,11 @@ function QuickActionButton({ label, icon, onClick }: { label: string, icon: Reac
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:bg-blue-50 hover:border-blue-200 transition-all text-gray-700 font-bold"
+      className="flex-1 max-w-[200px] flex items-center justify-center gap-2 px-3 sm:px-6 py-3 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:bg-blue-50 hover:border-blue-200 transition-all text-gray-700 font-bold"
+      title={label} // スマホでアイコンだけになった時のためにtitleをつけておく
     >
       {icon}
-      <span>{label}</span>
+      <span className="hidden sm:inline truncate">{label}</span>
     </button>
   );
 }
@@ -157,30 +159,82 @@ function ProfilesSection({ onClickMore }: { onClickMore: () => void }) {
 }
 
 function PhotoGallerySection({ onClickMore }: { onClickMore: () => void }) {
+  const [photos, setPhotos] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; description: string | null } | null>(null);
+
+  useEffect(() => {
+    const fetchPhotos = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) return;
+
+        const response = await fetch(`${API_BASE_URL}/api/gallery`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setPhotos(data);
+        }
+      } catch (error) {
+        console.error('ギャラリーの取得に失敗:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchPhotos();
+  }, []);
+
   return (
     <div className="mb-12">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold m-0 flex items-center gap-2">
           Photo Gallery
-          <span className="text-xs font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Coming Soon</span>
         </h2>
         <button className="bg-none border-none text-blue-700 cursor-pointer text-sm hover:text-blue-900 font-bold" onClick={onClickMore}>
           もっと見る
         </button>
       </div>
-      <div className="flex space-x-4 overflow-x-auto pb-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="w-[190px] flex-shrink-0">
-            <div className="aspect-square w-full bg-gray-100 rounded-xl overflow-hidden">
-              <img
-                src="/assets/images/photo_empty.png"
-                alt=""
-                className="w-full h-full object-cover"
-              />
+      <div className="flex space-x-4 overflow-x-auto pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        {isLoading ? (
+          Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="w-[190px] flex-shrink-0">
+              <div className="aspect-square w-full bg-gray-200 rounded-xl animate-pulse" />
             </div>
+          ))
+        ) : photos.length > 0 ? (
+          photos.map((photo) => (
+            <div key={photo.id} className="w-[190px] flex-shrink-0">
+              <div 
+                className="aspect-square w-full bg-gray-100 rounded-xl overflow-hidden cursor-pointer group shadow-sm hover:shadow-md transition-all"
+                onClick={() => {
+                  setSelectedPhoto({ url: photo.view_url, description: photo.description });
+                  setViewModalOpen(true);
+                }}
+              >
+                <img
+                  src={photo.view_url}
+                  alt={photo.image_type || '写真'}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="w-full py-8 text-center text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-xl">
+            まだ写真がありません
           </div>
-        ))}
+        )}
       </div>
+
+      <PhotoViewModal
+        isOpen={viewModalOpen}
+        imageUrl={selectedPhoto?.url ?? null}
+        description={selectedPhoto?.description}
+        onClose={() => setViewModalOpen(false)}
+      />
     </div>
   );
 }

@@ -9,13 +9,13 @@ function MembersSkeleton() {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6 pb-12 animate-pulse">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col aspect-[3/4]">
-          {/* 上部: 写真 (2/3) */}
-          <div className="h-[65%] w-full bg-gray-200" />
-          {/* 下部: 情報 (1/3) */}
-          <div className="h-[35%] p-4 flex flex-col justify-center space-y-3">
+        <div key={i} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-full">
+          {/* 上部: 写真 (正方形) */}
+          <div className="w-full aspect-square bg-gray-200" />
+          {/* 下部: 情報 (フレキシブル) */}
+          <div className="flex-1 p-4 md:p-5 flex flex-col space-y-3">
             <div className="h-5 bg-gray-200 rounded w-3/4" />
-            <div className="space-y-2">
+            <div className="space-y-2 mt-auto pt-2">
               <div className="h-3 bg-gray-100 rounded w-full" />
               <div className="h-3 bg-gray-100 rounded w-2/3" />
             </div>
@@ -64,10 +64,10 @@ export default function MembersPage() {
         // 🌟 専攻の出現回数をカウントして、多い順にソート（配列対応）
         const majorCounts = data.reduce((acc: any, m: any) => {
           if (!m.majors) return acc;
-          
+
           // APIのデータが配列 ['CS', 'Math'] でも、文字列 'CS' でも処理できるように正規化
           const majorArray = Array.isArray(m.majors) ? m.majors : [m.majors];
-          
+
           majorArray.forEach((major: string) => {
             acc[major] = (acc[major] || 0) + 1;
           });
@@ -120,7 +120,7 @@ export default function MembersPage() {
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-gray-50">
-      
+
       {/* ==========================================
           左側：サイドバー (フィルター)
       ========================================== */}
@@ -137,7 +137,7 @@ export default function MembersPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
-          
+
           {/* 名前検索 */}
           <div className="space-y-3">
             <h3 className="text-sm font-bold text-gray-700">名前検索</h3>
@@ -145,7 +145,7 @@ export default function MembersPage() {
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all"
+                className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                 placeholder="Name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -160,9 +160,9 @@ export default function MembersPage() {
               <div className="space-y-2">
                 {availableSchools.map(school => (
                   <label key={school} className="flex items-center gap-3 cursor-pointer group">
-                    <input 
-                      type="checkbox" 
-                      className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       checked={selectedSchools.includes(school)}
                       onChange={() => toggleFilter(school, selectedSchools, setSelectedSchools)}
                     />
@@ -180,9 +180,9 @@ export default function MembersPage() {
               <div className="space-y-2">
                 {availableMajors.map(major => (
                   <label key={major} className="flex items-center gap-3 cursor-pointer group">
-                    <input 
-                      type="checkbox" 
-                      className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       checked={selectedMajors.includes(major)}
                       onChange={() => toggleFilter(major, selectedMajors, setSelectedMajors)}
                     />
@@ -197,7 +197,7 @@ export default function MembersPage() {
 
       {/* スマホ用サイドバー背景オーバーレイ */}
       {isSidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/20 z-30 md:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
@@ -207,16 +207,16 @@ export default function MembersPage() {
           右側：メイングリッド
       ========================================== */}
       <div className="flex-1 p-6 md:p-8 h-full overflow-y-auto">
-        
+
         {/* ヘッダーエリア */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Our Members</h1>
             <p className="text-sm text-gray-500 mt-1">{filteredMembers.length} members found</p>
           </div>
-          
+
           {/* スマホ表示の時にだけ出る「フィルターを開く」ボタン */}
-          <button 
+          <button
             onClick={() => setIsSidebarOpen(true)}
             className="md:hidden p-2 text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 rounded-lg flex items-center gap-2"
           >
@@ -232,9 +232,9 @@ export default function MembersPage() {
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
             <SearchIcon className="w-12 h-12 mb-4 text-gray-300" />
             <p>条件に一致するメンバーが見つかりませんでした。</p>
-            <button 
+            <button
               onClick={() => { setSearchQuery(''); setSelectedSchools([]); setSelectedMajors([]); }}
-              className="mt-4 text-violet-600 font-bold hover:underline"
+              className="mt-4 text-blue-600 font-bold hover:underline"
             >
               フィルターをクリアする
             </button>
@@ -260,38 +260,55 @@ function VerticalMemberCard({ member }: { member: any }) {
   const nameKanji = member.name_kanji || '';
   const avatarUrl = member.avatar_link || '/assets/images/profile_photo_empty.png';
 
+  // 専攻を配列化（バッジ表示用）
+  const majorsArray = member.majors
+    ? (Array.isArray(member.majors) ? member.majors : [member.majors])
+    : [];
+
   const navigate = useNavigate();
 
   return (
     <div
-      className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md hover:border-violet-200 transition-all duration-300 cursor-pointer flex flex-col aspect-[3/4] group"
+      className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg hover:border-blue-200 hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col h-full group"
       onClick={() => navigate(`/members/${member.id}`)}
     >
-      {/* 上部: 写真エリア (約65%) */}
-      <div className="h-[65%] w-full relative bg-gray-100 overflow-hidden">
-        <img 
-          src={avatarUrl} 
-          alt={nameEnglish} 
+      {/* 上部: 写真エリア (正方形で切り抜き) */}
+      <div className="w-full aspect-square relative bg-gray-100 overflow-hidden shrink-0">
+        <img
+          src={avatarUrl}
+          alt={nameEnglish}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
         />
-        {/* （オプション）左上に国旗やバッジを置くのもカッコいいです */}
+        {/* 背景のグラデーション（オプション: 写真下部の影でテキストを見やすくする） */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
       </div>
 
-      {/* 下部: 情報エリア (約35%) */}
-      <div className="h-[35%] p-3 md:p-4 flex flex-col justify-center bg-white">
-        <h3 className="font-bold text-gray-900 text-sm md:text-base leading-tight truncate">
+      {/* 下部: 情報エリア (内容に応じて伸びる) */}
+      <div className="flex-1 p-4 md:p-5 flex flex-col bg-white">
+        <h3 className="font-bold text-gray-900 text-base md:text-lg leading-tight line-clamp-2 group-hover:text-blue-600 transition-colors">
           {nameEnglish}
         </h3>
         {nameKanji && (
-          <p className="text-[10px] md:text-xs text-gray-500 mb-2 truncate">{nameKanji}</p>
+          <p className="text-xs md:text-sm text-gray-400 mt-1 line-clamp-1">{nameKanji}</p>
         )}
-        
-        <div className="space-y-1 mt-auto">
+
+        <div className="mt-auto pt-4 space-y-2">
           {member.current_school && (
             <IconText icon={<SchoolIcon />} text={member.current_school} />
           )}
-          {member.majors && (
-            <IconText icon={<WorkIcon />} text={member.majors} />
+          {majorsArray.length > 0 && (
+            <div className="flex items-start text-xs md:text-sm text-gray-500">
+              <div className="w-4 h-4 mr-1.5 mt-0.5 flex items-center justify-center text-gray-400 shrink-0">
+                <WorkIcon />
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {majorsArray.map((major: string, idx: number) => (
+                  <span key={idx} className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-md text-[10px] md:text-xs font-bold border border-blue-100">
+                    {major}
+                  </span>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -302,11 +319,11 @@ function VerticalMemberCard({ member }: { member: any }) {
 // --- ヘルパー: アイコンとテキストを並べる ---
 function IconText({ icon, text }: { icon: React.ReactNode, text: string }) {
   return (
-    <div className="flex items-center text-[10px] md:text-xs text-gray-500">
-      <div className="w-3.5 h-3.5 mr-1.5 flex items-center justify-center text-gray-400">
+    <div className="flex items-center text-xs md:text-sm text-gray-500">
+      <div className="w-4 h-4 mr-1.5 flex items-center justify-center text-gray-400 shrink-0">
         {icon}
       </div>
-      <span className="truncate">{text}</span>
+      <span className="line-clamp-2">{text}</span>
     </div>
   );
 }
