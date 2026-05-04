@@ -22,9 +22,7 @@ export default function FormAnswerPage() {
   const [isLoading, setIsLoading] = useState(true);
   
   // 🌟 新しいステート群
-  const [_, setWasCleaned] = useState(false);         // フォーム編集による自動クリーンアップが発生したか
   const [isSubmitted, setIsSubmitted] = useState(false);       // 今回送信成功したか
-  const [__, setIsAlreadySubmitted] = useState(false); // 過去に送信済みか
   const [isSaving, setIsSaving] = useState(false);             // 自動保存中か
   const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -84,7 +82,6 @@ export default function FormAnswerPage() {
   const loadAnswersWithCleanup = (rawAns: Record<string, any>, qs: QuestionData[] = questions) => {
     const { cleaned, isChanged } = cleanAnswers(qs, rawAns || {});
     setAnswers(cleaned);
-    if (isChanged) setWasCleaned(true);
     if (isChanged) setHasUnsavedChanges(true);
   };
 
@@ -138,7 +135,6 @@ export default function FormAnswerPage() {
         const latestDraft = pResponses.find((r: any) => r.status === 'draft');
 
         if (hasSubmitted) {
-          setIsAlreadySubmitted(true);
           if (allowMult || allowEd) {
             setGuardState('choice');
           } else {

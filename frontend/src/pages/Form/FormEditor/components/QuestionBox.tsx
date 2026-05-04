@@ -11,7 +11,7 @@ type QuestionBoxProps = {
   isSortingGlobal?: boolean;
   isDragging?: boolean;
   dragHandleProps?: any;
-  onStartSorting?: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onStartSorting?: () => void;
   onCancelSorting?: () => void;
   onChange: (updates: Partial<QuestionData>) => void;
   onDelete: () => void;
@@ -507,9 +507,9 @@ export default function QuestionBox({
         <div className={`absolute top-0 left-0 right-0 flex justify-center items-center group/main-handle z-50 pointer-events-none ${isSortingGlobal ? 'h-full bg-transparent' : 'h-8'}`}>
           <div 
             {...dragHandleProps}
-            onPointerDown={(e) => {
-              onStartSorting?.(e);
-              dragHandleProps?.onPointerDown?.(e);
+            onPointerDown={() => {
+              onStartSorting?.();
+              dragHandleProps?.onPointerDown?.();
             }}
             onPointerUp={() => {
               // ドラッグが行われず、ただクリックして離しただけの場合はキャンセル

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, useParams, useBlocker } from 'react-router-dom'; 
 import QuestionBox from './components/QuestionBox';
 import { FileText, Eye, Send, Globe, AlertTriangle } from 'lucide-react';
@@ -349,7 +349,7 @@ export default function FormEditorPage() {
   };
 
   // --- ドラッグ開始時のスクロール固定（スクロールアンカー） ---
-  const handleStartSorting = (e: React.PointerEvent<HTMLDivElement>, questionId: string) => {
+  const handleStartSorting = (questionId: string) => {
     const scrollContainer = editorScrollRef.current;
     const el = document.getElementById(`box-${questionId}`);
 
@@ -470,7 +470,8 @@ export default function FormEditorPage() {
       
       alert(message);
       setViewMode('edit'); 
-    } catch (_err) {
+    } catch (err) {
+      console.error('Publish error:', err);
       alert('エラーが発生しました');
     } finally {
       setIsSaving(false);
@@ -773,7 +774,7 @@ export default function FormEditorPage() {
                                 isSortingGlobal={isSortingQuestions}
                                 isDragging={snapshot.isDragging}
                                 dragHandleProps={dragProvided.dragHandleProps}
-                                onStartSorting={(e) => handleStartSorting(e, question.id)}
+                                onStartSorting={() => handleStartSorting(question.id)}
                                 onCancelSorting={() => setIsSortingQuestions(false)}
                                 onChange={(updates) => handleQuestionChange(question.id, updates)}
                                 onDelete={() => deleteQuestion(question.id)} 
