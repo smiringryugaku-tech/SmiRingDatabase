@@ -6,7 +6,7 @@ import { getDisplayName } from './types';
 import FormAnswerUI from '../Answer/components/FormAnswerUI';
 import NavSelector from './NavSelector';
 
-export default function IndividualTab({ formId, title, description, questions, responses, indexMap, isAnonymous }: TabProps) {
+export default function IndividualTab({ title, description, questions, responses, indexMap, isAnonymous }: TabProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlUserId = searchParams.get('userId') || null;
 
