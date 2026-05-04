@@ -165,7 +165,9 @@ export default function FormAnswerPage() {
   useEffect(() => {
     // プレビューモード、未変更、またはすでに送信済み（編集不可/新規作成中ではない）の場合は自動保存しない
     // ガード画面（choice/blocked）の間も保存しない
-    if (isPreviewMode || !hasUnsavedChanges || isSubmitted || guardState !== 'none') return;
+    // さらに、既に「提出済み（submitted）」の回答を編集している場合も自動保存をスキップする
+    const isEditingSubmittedResponse = pastResponses.find(r => r.id === responseId)?.status === 'submitted';
+    if (isPreviewMode || !hasUnsavedChanges || isSubmitted || guardState !== 'none' || isEditingSubmittedResponse) return;
 
     // ユーザーの入力が止まってから1.5秒後に保存を走らせる
     const timer = setTimeout(async () => {

@@ -15,6 +15,8 @@ export type ResponseSummary = {
 
 export type TabProps = {
   formId: string;
+  title: string;
+  description: string;
   questions: QuestionData[];
   responses: ResponseSummary[];
   indexMap: Map<string, number>; // userId → 回答者番号 (1始まり)
