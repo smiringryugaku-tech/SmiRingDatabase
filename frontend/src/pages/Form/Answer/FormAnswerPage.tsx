@@ -265,7 +265,7 @@ export default function FormAnswerPage() {
   if (guardState === 'choice') {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-gray-50 p-6">
-        <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md animate-in fade-in duration-300">
+        <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md">
           <div className="w-20 h-20 bg-blue-100 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 className="w-12 h-12" />
           </div>
@@ -306,7 +306,7 @@ export default function FormAnswerPage() {
   if (guardState === 'blocked') {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-gray-50 p-6">
-        <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md animate-in fade-in duration-300">
+        <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md">
           <div className="w-20 h-20 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 className="w-12 h-12" />
           </div>
@@ -330,7 +330,7 @@ export default function FormAnswerPage() {
   if (isSubmitted) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-blue-50 p-6">
-        <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md animate-in zoom-in duration-300">
+        <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md">
           <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 className="w-12 h-12" />
           </div>

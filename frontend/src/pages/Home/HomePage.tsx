@@ -162,28 +162,31 @@ function PhotoGallerySection({ onClickMore }: { onClickMore: () => void }) {
   const [photos, setPhotos] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [viewModalOpen, setViewModalOpen] = useState(false);
-  const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; description: string | null } | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<any | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  const fetchPhotos = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+      setCurrentUserId(session.user.id);
+
+      const response = await fetch(`${API_BASE_URL}/api/gallery`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPhotos(data);
+      }
+    } catch (error) {
+      console.error('ギャラリーの取得に失敗:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchPhotos = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (!token) return;
-
-        const response = await fetch(`${API_BASE_URL}/api/gallery`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setPhotos(data);
-        }
-      } catch (error) {
-        console.error('ギャラリーの取得に失敗:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
     fetchPhotos();
   }, []);
 
@@ -210,7 +213,7 @@ function PhotoGallerySection({ onClickMore }: { onClickMore: () => void }) {
               <div 
                 className="aspect-square w-full bg-gray-100 rounded-xl overflow-hidden cursor-pointer group shadow-sm hover:shadow-md transition-all"
                 onClick={() => {
-                  setSelectedPhoto({ url: photo.view_url, description: photo.description });
+                  setSelectedPhoto(photo);
                   setViewModalOpen(true);
                 }}
               >
@@ -231,8 +234,12 @@ function PhotoGallerySection({ onClickMore }: { onClickMore: () => void }) {
 
       <PhotoViewModal
         isOpen={viewModalOpen}
-        imageUrl={selectedPhoto?.url ?? null}
+        imageUrl={selectedPhoto?.view_url ?? null}
         description={selectedPhoto?.description}
+        isOwner={selectedPhoto?.user_id === currentUserId}
+        photo={selectedPhoto}
+        onPhotoUpdated={fetchPhotos}
+        onPhotoDeleted={fetchPhotos}
         onClose={() => setViewModalOpen(false)}
       />
     </div>

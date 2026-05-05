@@ -111,13 +111,20 @@ router.get('/api/gallery', async (req: Request, res: Response) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) return res.status(401).json({ error: '認証に失敗しました' });
 
-    // visibility が public, registered, organization のものを取得し、アバター（image_type = 'avatar'）は除外する
-    const { data: galleries, error: fetchError } = await supabase
+    // クエリパラメータでアバターを含めるかどうかを判定（デフォルトは除外）
+    const includeAvatars = req.query.includeAvatars === 'true';
+
+    // visibility が public, registered, organization のものを取得
+    let query = supabase
       .from('gallery')
       .select('*')
-      .in('visibility', ['public', 'registered', 'organization'])
-      .neq('image_type', 'avatar')
-      .order('created_at', { ascending: false });
+      .in('visibility', ['public', 'registered', 'organization']);
+
+    if (!includeAvatars) {
+      query = query.neq('image_type', 'avatar');
+    }
+
+    const { data: galleries, error: fetchError } = await query.order('created_at', { ascending: false });
 
     if (fetchError) throw fetchError;
 
@@ -125,27 +132,97 @@ router.get('/api/gallery', async (req: Request, res: Response) => {
     const uniqueUserIds = [...new Set((galleries || []).map(g => g.user_id))];
     const { data: profiles } = await supabase
       .from('basic_profile_info')
-      .select('id, name_kanji, name_english')
+      .select('id, name_kanji, name_english, avatar_id')
       .in('id', uniqueUserIds);
 
     const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]));
 
     // 各画像の表示用署名付きURL（1時間有効）を生成してフロントに返す
+    const galleriesWithUrls = await Promise.all((galleries || []).map(async (g) => {
+      const profile = profileMap[g.user_id] || null;
+      let avatarUrl = null;
+      
+      // プロフィールのアバターURLを解決
+      if (profile?.avatar_id) {
+        const { data: avatar } = await supabase.from('gallery').select('storage_path').eq('id', profile.avatar_id).single();
+        if (avatar) {
+          const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: avatar.storage_path });
+          avatarUrl = await getSignedUrl(r2, command, { expiresIn: 3600 });
+        }
+      }
+
+      let viewUrl = '';
+      try {
+        const command = new GetObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: g.storage_path,
+        });
+        viewUrl = await getSignedUrl(r2, command, { expiresIn: 3600 });
+      } catch (err) {
+        console.error('署名付きURL生成エラー:', err);
+      }
+      
+      return {
+        ...g,
+        basic_profile_info: profile ? { ...profile, avatar_url: avatarUrl } : null,
+        view_url: viewUrl,
+      };
+    }));
+
+    res.json(galleriesWithUrls);
+
+  } catch (error: any) {
+    console.error('ギャラリー一覧取得エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// 👤 特定ユーザーのギャラリー一覧取得 API
+// ==========================================
+router.get('/api/gallery/user/:userId', async (req: Request, res: Response) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: '認証トークンがありません' });
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return res.status(401).json({ error: '認証に失敗しました' });
+
+    const targetUserId = req.params.userId;
+    const isOwner = user.id === targetUserId;
+
+    let query = supabase.from('gallery').select('*').eq('user_id', targetUserId);
+
+    if (!isOwner) {
+      // 他人の場合は公開設定のもののみ表示
+      query = query.in('visibility', ['public', 'registered', 'organization']);
+    }
+
+    const { data: galleries, error: fetchError } = await query.order('created_at', { ascending: false });
+
+    if (fetchError) throw fetchError;
+
+    // アバター写真を先頭にするソート
+    const sortedGalleries = (galleries || []).sort((a, b) => {
+      if (a.image_type === 'avatar' && b.image_type !== 'avatar') return -1;
+      if (a.image_type !== 'avatar' && b.image_type === 'avatar') return 1;
+      return 0; // あとは created_at の降順
+    });
+
     const galleriesWithUrls = await Promise.all(
-      (galleries || []).map(async (item) => {
+      sortedGalleries.map(async (item) => {
         const command = new GetObjectCommand({
           Bucket: BUCKET_NAME,
           Key: item.storage_path,
         });
         const viewUrl = await getSignedUrl(r2, command, { expiresIn: 3600 });
-        return { ...item, view_url: viewUrl, basic_profile_info: profileMap[item.user_id] ?? null };
+        return { ...item, view_url: viewUrl };
       })
     );
 
     res.json(galleriesWithUrls);
 
   } catch (error: any) {
-    console.error('ギャラリー一覧取得エラー:', error);
+    console.error('ユーザーギャラリー取得エラー:', error);
     res.status(500).json({ error: error.message });
   }
 });

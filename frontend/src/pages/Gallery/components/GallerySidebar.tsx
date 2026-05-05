@@ -56,6 +56,7 @@ export default function GallerySidebar({
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
                 <option value="all">すべての種類</option>
+                <option value="avatar">アバター</option>
                 <option value="portrait">人物</option>
                 <option value="landscape">風景</option>
                 <option value="event">イベント</option>

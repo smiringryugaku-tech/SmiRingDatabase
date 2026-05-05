@@ -125,4 +125,31 @@ router.get('/api/basic_profile_info/:id', async (req: Request, res: Response) =>
   }
 });
 
+// 自分のアカウントを削除
+// ⚠️ Service Role Key（管理者権限）が必要なため、フロントではなくバックエンドで実行する
+router.delete('/api/account/me', async (req: Request, res: Response) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: '認証トークンがありません' });
+    }
+
+    // トークンからユーザー情報を取得して、削除対象が本人か確認
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return res.status(401).json({ error: '無効なトークンです' });
+    }
+
+    // Supabase Admin APIでユーザーを削除（関連するAuth情報も全消し）
+    const { error: deleteError } = await supabase.auth.admin.deleteUser(user.id);
+    if (deleteError) throw deleteError;
+
+    res.json({ message: 'アカウントを削除しました' });
+
+  } catch (error: any) {
+    console.error('アカウント削除エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

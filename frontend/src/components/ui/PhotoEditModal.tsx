@@ -108,6 +108,7 @@ export default function PhotoEditModal({ isOpen, onClose, photo, onSuccess }: Ph
               disabled={isSubmitting}
             >
               <option value="">種類を選択（必須）</option>
+              <option value="avatar">アバター</option>
               <option value="portrait">人物</option>
               <option value="landscape">風景</option>
               <option value="event">イベント</option>

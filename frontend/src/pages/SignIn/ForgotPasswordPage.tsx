@@ -1,21 +1,34 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const navigate = useNavigate();
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setMessage(null);
 
-    // TODO: Supabaseの auth.resetPasswordForEmail 処理
-    
-    setTimeout(() => {
-      alert('TODO: 再設定メールを送信しました。');
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      setMessage({ type: 'success', text: 'パスワード再設定用のメールを送信しました。メールのリンクから新しいパスワードを設定してください。' });
+      setEmail(''); // 送信成功したらフィールドを空にする
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'メールの送信に失敗しました。' });
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -32,6 +45,12 @@ export default function ForgotPasswordPage() {
           <p className="text-gray-600 text-sm mb-8 text-center">
             登録済みのメールアドレスを入力してください。<br/>パスワード再設定用のリンクをお送りします。
           </p>
+
+          {message && (
+            <div className={`p-3 rounded-md text-sm mb-6 border ${message.type === 'success' ? 'bg-green-50 text-green-600 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+              {message.text}
+            </div>
+          )}
 
           <form onSubmit={handleReset} className="space-y-4">
             <div>

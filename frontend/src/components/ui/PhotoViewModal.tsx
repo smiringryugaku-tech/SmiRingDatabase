@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../../config';
 import PhotoEditModal from './PhotoEditModal';
 
@@ -15,15 +16,22 @@ type Props = {
     visibility: string;
     description: string | null;
     view_url: string;
+    basic_profile_info?: {
+      id: string;
+      name_kanji: string | null;
+      name_english: string | null;
+      avatar_url?: string | null;
+    } | null;
   } | null;
   onPhotoUpdated?: () => void;
   onPhotoDeleted?: () => void;
 };
 
 export default function PhotoViewModal({ isOpen, imageUrl, onClose, description, isOwner, photo, onPhotoUpdated, onPhotoDeleted }: Props) {
-  const [isVisible, setIsVisible] = useState(false);
+  const navigate = useNavigate();
   
   // 編集モーダルと削除確認モーダルの状態
+  const [isVisible, setIsVisible] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -135,44 +143,76 @@ export default function PhotoViewModal({ isOpen, imageUrl, onClose, description,
         </svg>
       </button>
 
-      {/* 画像コンテナ（クリックしても何もしない） */}
+      {/* 画像コンテナ */}
       <div
-        className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center justify-center animate-in zoom-in-95 duration-300 group"
+        className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center overflow-y-auto animate-in zoom-in-95 duration-300 group pb-4"
       >
-        <img
-          src={imageUrl}
-          alt="View"
-          className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
-        />
+        <div className="relative flex-shrink-0">
+          <img
+            src={imageUrl}
+            alt="View"
+            className="max-w-full max-h-[65vh] object-contain rounded-lg shadow-2xl"
+          />
 
-        {/* 自分の写真の場合のみ、ホバー時に編集・削除ボタンを表示 */}
-        {isOwner && (
-          <div className="absolute top-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            {/* 編集ボタン */}
-            <button
-              onClick={() => setIsEditModalOpen(true)}
-              className="p-2 bg-white/90 hover:bg-white text-blue-600 rounded-lg shadow-sm backdrop-blur-sm transition-colors"
-              title="編集"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-            </button>
-            {/* 削除ボタン */}
-            <button
-              onClick={() => setIsDeleteConfirmOpen(true)}
-              className="p-2 bg-white/90 hover:bg-white text-red-600 rounded-lg shadow-sm backdrop-blur-sm transition-colors"
-              title="削除"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
+          {/* 自分の写真の場合のみ、ホバー時に編集・削除ボタンを表示 */}
+          {isOwner && (
+            <div className="absolute top-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              {/* 編集ボタン */}
+              <button
+                onClick={() => setIsEditModalOpen(true)}
+                className="p-2 bg-white/90 hover:bg-white text-blue-600 rounded-lg shadow-sm backdrop-blur-sm transition-colors"
+                title="編集"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+              {/* 削除ボタン */}
+              <button
+                onClick={() => setIsDeleteConfirmOpen(true)}
+                className="p-2 bg-white/90 hover:bg-white text-red-600 rounded-lg shadow-sm backdrop-blur-sm transition-colors"
+                title="削除"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 投稿者情報タイル（写真の下、説明文の上） */}
+        {photo?.basic_profile_info && (
+          <div 
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose(); // モーダルを閉じる
+              navigate(`/members/${photo.basic_profile_info?.id}`);
+            }}
+            className="mt-4 flex items-center gap-3 bg-white/60 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/40 shadow-sm hover:bg-white/80 hover:shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer group/tile"
+          >
+            <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 border-2 border-white shadow-sm flex-shrink-0">
+              <img
+                src={photo.basic_profile_info.avatar_url || '/assets/images/profile_photo_empty.png'}
+                alt=""
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = '/assets/images/profile_photo_empty.png';
+                }}
+              />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider leading-none mb-0.5 group-hover/tile:text-blue-500 transition-colors">Uploaded by</span>
+              <span className="text-sm font-bold text-gray-700 leading-none group-hover/tile:text-blue-600 transition-colors">
+                {photo.basic_profile_info.name_english || photo.basic_profile_info.name_kanji || 'Unknown'}
+              </span>
+            </div>
           </div>
         )}
 
+        {/* 説明文 */}
         {description && (
-          <p className="mt-4 text-gray-800 font-medium text-lg text-center max-w-2xl bg-white/80 px-4 py-2 rounded-xl shadow-sm">
+          <p className="mt-3 text-gray-800 font-medium text-base text-center max-w-2xl bg-white/80 px-4 py-2 rounded-xl shadow-sm">
             {description}
           </p>
         )}

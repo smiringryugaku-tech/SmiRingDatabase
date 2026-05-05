@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import BasicInfoPage from './BasicInfoTab';
 import DetailInfoTab from './DetailInfoTab';
+import AccountSettingTab from './AccountSettingTab';
 import PhotoUploadModal from './components/PhotoUploadModal';
 import PhotoViewModal from '../../components/ui/PhotoViewModal';
+import { Settings, User } from 'lucide-react';
 import { API_BASE_URL } from '../../config';
 
 type GalleryItem = {
@@ -13,14 +15,27 @@ type GalleryItem = {
   image_type: string | null;
   tags: string[];
   description: string | null;
-  visibility: string | null;
+  visibility: string;
   created_at: string;
   view_url: string;
 };
 
 export default function ProfilePage() {
   const { id } = useParams<{ id: string }>();
-  const [activeTab, setActiveTab] = useState<'basic' | 'detail'>('basic');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get('tab') as 'basic' | 'detail' | 'account') || 'basic';
+
+  const setActiveTab = (tab: 'basic' | 'detail' | 'account') => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (tab === 'basic') {
+        next.delete('tab'); // デフォルトは消しておくときれい
+      } else {
+        next.set('tab', tab);
+      }
+      return next;
+    }, { replace: true }); // 履歴を汚さないために replace: true
+  };
   const [profileData, setProfileData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditable, setIsEditable] = useState(false);
@@ -35,7 +50,7 @@ export default function ProfilePage() {
 
   // 写真拡大表示モーダル
   const [viewModalOpen, setViewModalOpen] = useState(false);
-  const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; description: string | null } | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<GalleryItem | null>(null);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -62,6 +77,8 @@ export default function ProfilePage() {
       });
       const data = await response.json();
       setProfileData(data);
+      // プロフィール取得後にそのユーザーのギャラリーを取得する
+      fetchGallery(data.id);
     } catch (error) {
       console.error('プロフィール取得エラー:', error);
     } finally {
@@ -69,14 +86,14 @@ export default function ProfilePage() {
     }
   }, [id]);
 
-  const fetchGallery = useCallback(async () => {
+  const fetchGallery = useCallback(async (targetUserId: string) => {
     setIsGalleryLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) return;
 
-      const response = await fetch(`${API_BASE_URL}/api/gallery`, {
+      const response = await fetch(`${API_BASE_URL}/api/gallery/user/${targetUserId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) return;
@@ -91,8 +108,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     fetchProfile();
-    fetchGallery();
-  }, [fetchProfile, fetchGallery]);
+  }, [fetchProfile]);
 
   const avatarUrl = profileData?.avatar_link
     ? profileData.avatar_link
@@ -111,7 +127,9 @@ export default function ProfilePage() {
 
   const handleUploadSuccess = () => {
     fetchProfile();
-    fetchGallery();
+    if (profileData?.id) {
+      fetchGallery(profileData.id);
+    }
   };
 
   if (isLoading) {
@@ -124,13 +142,23 @@ export default function ProfilePage() {
       {/* ==========================================
           左側(PC) / 上部(スマホ)：プロフィールサマリー & 写真一覧
       ========================================== */}
-      <div className="w-full md:w-80 lg:w-96 bg-gray-50 px-4 md:px-6 py-6 md:py-8 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col items-center flex-shrink-0 md:overflow-y-auto">
+      <div className="w-full md:w-80 lg:w-96 bg-gray-50 px-4 md:px-6 py-6 md:py-8 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col items-center flex-shrink-0 md:overflow-y-auto relative">
+
+        {/* 右上の歯車アイコン（自分のプロフィールを見ている時だけ表示） */}
+        {isEditable && (
+          <button
+            onClick={() => setActiveTab(activeTab === 'account' ? 'basic' : 'account')}
+            className={`absolute top-4 right-4 p-2 rounded-full transition-colors ${activeTab === 'account' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-200 hover:text-gray-700'}`}
+            title="Account Settings"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+        )}
 
         {/* 1. 大きな丸いプロフィール写真 */}
         <div
-          className={`w-32 md:w-full max-w-[240px] aspect-square rounded-full border-4 border-gray-300 overflow-hidden relative group bg-gray-200 flex items-center justify-center flex-shrink-0 ${
-            isEditable ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''
-          }`}
+          className={`w-32 md:w-full max-w-[240px] aspect-square rounded-full border-4 border-gray-300 overflow-hidden relative group bg-gray-200 flex items-center justify-center flex-shrink-0 ${isEditable ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''
+            }`}
           onClick={openAvatarModal}
         >
           <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
@@ -152,10 +180,14 @@ export default function ProfilePage() {
           {profileData?.name_english ?? 'No Name'}
         </h2>
 
-        {/* 2. 写真一覧 (Photos) */}
+        {/* 2. 写真一覧 (Photos)
+             - 自分：公開設定に関わらず全て表示
+             - 他人：Organization / Registered / Public のみ表示（API側でフィルタリング済み）
+        */}
         <div className="w-full mt-6 md:mt-8">
           <div className="flex items-center justify-between mb-3 md:mb-4">
             <h3 className="font-bold text-base md:text-lg">Photos</h3>
+            {/* 追加ボタンは自分のプロフィールのみ */}
             {isEditable && (
               <button
                 onClick={openGalleryModal}
@@ -183,10 +215,10 @@ export default function ProfilePage() {
               galleryItems.map((item) => (
                 <div
                   key={item.id}
-                  className="w-24 h-24 md:w-auto md:h-auto md:aspect-square flex-shrink-0 rounded-lg overflow-hidden bg-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
+                  className="w-24 h-24 md:w-auto md:h-auto md:aspect-square flex-shrink-0 rounded-lg overflow-hidden bg-gray-200 cursor-pointer hover:opacity-80 transition-opacity relative group"
                   title={item.description ?? undefined}
                   onClick={() => {
-                    setSelectedPhoto({ url: item.view_url, description: item.description });
+                    setSelectedPhoto(item);
                     setViewModalOpen(true);
                   }}
                 >
@@ -195,10 +227,16 @@ export default function ProfilePage() {
                     alt={item.image_type ?? '写真'}
                     className="w-full h-full object-cover"
                   />
+                  {/* アバターマーク（GalleryPageと同じスタイル） */}
+                  {item.image_type === 'avatar' && (
+                    <div className="absolute top-2 right-2 bg-white/90 p-1.5 rounded-md shadow-sm backdrop-blur-sm z-10" title="アバター写真">
+                      <User className="w-4 h-4 text-gray-500" />
+                    </div>
+                  )}
                 </div>
               ))
             ) : (
-              // 写真なし
+              // 写真なしの空ステート
               <div className="col-span-3 py-8 text-center text-gray-400 text-sm">
                 {isEditable ? (
                   <button
@@ -211,7 +249,7 @@ export default function ProfilePage() {
                     <span>写真を追加する</span>
                   </button>
                 ) : (
-                  <span>写真がありません</span>
+                  <span>公開された写真はありません</span>
                 )}
               </div>
             )}
@@ -224,32 +262,39 @@ export default function ProfilePage() {
       ========================================== */}
       <div className="flex-1 flex flex-col bg-white md:overflow-hidden min-w-0">
 
-        {/* 上部ヘッダー＆タブ部分 */}
-        <div className="px-4 md:px-10 pt-6 md:pt-10 border-b border-gray-200 flex-shrink-0">
-          <div className="flex space-x-6 md:space-x-8 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            <button
-              className={`pb-3 font-medium text-base md:text-lg transition-colors relative whitespace-nowrap ${activeTab === 'basic' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-              onClick={() => setActiveTab('basic')}
-            >
-              Basic Information
-              {activeTab === 'basic' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
-            </button>
-            <button
-              className={`pb-3 font-medium text-base md:text-lg transition-colors relative whitespace-nowrap ${activeTab === 'detail' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-              onClick={() => setActiveTab('detail')}
-            >
-              Detail Information
-              {activeTab === 'detail' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
-            </button>
+        {/* アカウント設定以外の時はタブヘッダーを表示 */}
+        {activeTab !== 'account' && (
+          <div className="px-4 md:px-10 pt-6 md:pt-10 border-b border-gray-200 flex-shrink-0 flex justify-between items-end">
+            {/* 左側：横スクロール可能なタブ群 */}
+            <div className="flex space-x-6 md:space-x-8 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] flex-1">
+              <button
+                className={`pb-3 font-medium text-base md:text-lg transition-colors relative whitespace-nowrap ${activeTab === 'basic' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                onClick={() => setActiveTab('basic')}
+              >
+                Basic Information
+                {activeTab === 'basic' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
+              </button>
+              <button
+                className={`pb-3 font-medium text-base md:text-lg transition-colors relative whitespace-nowrap ${activeTab === 'detail' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                onClick={() => setActiveTab('detail')}
+              >
+                Detail Information
+                {activeTab === 'detail' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* タブの中身 */}
         <div className="flex-1 md:overflow-y-auto">
-          {activeTab === 'basic' ? (
+          {activeTab === 'basic' && (
             <BasicInfoPage initialData={profileData} isEditable={isEditable} onDataChange={fetchProfile} />
-          ) : (
+          )}
+          {activeTab === 'detail' && (
             <DetailInfoTab userId={profileData?.id} isEditable={isEditable} />
+          )}
+          {activeTab === 'account' && (
+            <AccountSettingTab onBack={() => setActiveTab('basic')} />
           )}
         </div>
       </div>
@@ -265,9 +310,13 @@ export default function ProfilePage() {
       {/* 写真拡大表示モーダル */}
       <PhotoViewModal
         isOpen={viewModalOpen}
-        imageUrl={selectedPhoto?.url ?? null}
+        imageUrl={selectedPhoto?.view_url ?? null}
         description={selectedPhoto?.description}
         onClose={() => setViewModalOpen(false)}
+        isOwner={isEditable}
+        photo={selectedPhoto}
+        onPhotoUpdated={() => fetchGallery(profileData.id)}
+        onPhotoDeleted={() => fetchGallery(profileData.id)}
       />
     </div>
   );

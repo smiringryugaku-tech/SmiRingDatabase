@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../../config';
 
 type Props = {
@@ -73,6 +74,7 @@ function FormResponseRow({ response, onClick }: { response: any, onClick: () => 
 
 // --- メインコンポーネント ---
 export default function DetailInfoTab({ userId, isEditable = false }: Props) {
+  const navigate = useNavigate();
   console.log(`TODO: Use isEditable: ${isEditable} later`)
   const [responses, setResponses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -97,9 +99,10 @@ export default function DetailInfoTab({ userId, isEditable = false }: Props) {
     fetchResponses();
   }, [userId]);
 
-  const handleRowClick = (formTitle: string) => {
-    // 🌟 将来的にはここで回答詳細画面へ遷移させます
-    alert(`TODO: 「${formTitle}」の詳しい回答内容ページを開く`);
+  const handleRowClick = (formId: string) => {
+    if (userId) {
+      navigate(`/form-responses/${formId}/${userId}`);
+    }
   };
 
   return (
@@ -119,7 +122,7 @@ export default function DetailInfoTab({ userId, isEditable = false }: Props) {
             <FormResponseRow
               key={res.id}
               response={res}
-              onClick={() => handleRowClick(res.form_title)}
+              onClick={() => handleRowClick(res.form_id)}
             />
           ))}
         </div>

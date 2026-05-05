@@ -1,20 +1,21 @@
 import { useState } from 'react';
 import { Outlet, useNavigate, Link } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 
 export default function MainLayout() {
   // メニューの開閉状態を管理するState
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    // TODO: 後でここにSupabaseの signOut() 処理を書きます
-    /*
-    await supabase.auth.signOut();
-    */
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
     
     // ドロワーを閉じてログイン画面へ遷移
     setIsDrawerOpen(false);
-    alert('TODO: ログアウトしました！');
     navigate('/sign-in');
   };
 

@@ -4,7 +4,7 @@ import PhotoViewModal from '../../components/ui/PhotoViewModal';
 import PhotoUploadModal from '../Profile/components/PhotoUploadModal';
 import { supabase } from '../../lib/supabase';
 import { API_BASE_URL } from '../../config';
-import { Plus } from 'lucide-react';
+import { Plus, User } from 'lucide-react';
 
 export type GalleryItem = {
   id: string;
@@ -39,7 +39,7 @@ export default function GalleryPage() {
       if (!token) return;
       setCurrentUserId(session.user.id);
 
-      const response = await fetch(`${API_BASE_URL}/api/gallery`, {
+      const response = await fetch(`${API_BASE_URL}/api/gallery?includeAvatars=true`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -158,6 +158,11 @@ function GalleryGrid({ photos, isLoading, currentUserId, searchQuery, filterType
                 }}
               >
                 <img src={photo.view_url} alt={photo.image_type || '写真'} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                {photo.image_type === 'avatar' && (
+                  <div className="absolute top-2 right-2 bg-white/90 p-1.5 rounded-md shadow-sm backdrop-blur-sm z-10" title="アバター写真">
+                    <User className="w-4 h-4 text-gray-500" />
+                  </div>
+                )}
                 {photo.description && (
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4 translate-y-full group-hover:translate-y-0 transition-transform duration-300">
                     <span className="text-white text-sm font-medium truncate block">
