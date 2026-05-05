@@ -306,9 +306,10 @@ router.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
     if (authError || !user) return res.status(401).json({ error: '認証に失敗しました' });
     const user_id = user.id;
 
-    // 1. フォーム設定を取得して複数回答の可否を確認
-    const { data: form } = await supabase.from('forms').select('allow_multiple_responses').eq('id', formId).single();
+    // 1. フォーム設定を取得して複数回答と匿名設定の可否を確認
+    const { data: form } = await supabase.from('forms').select('allow_multiple_responses, allow_anonymous').eq('id', formId).single();
     const allowMultiple = form?.allow_multiple_responses || false;
+    const isAnonymous = form?.allow_anonymous || false;
 
     // 2. Turnstile検証
     const verifyResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
@@ -344,7 +345,8 @@ router.post('/api/forms/:id/submit', async (req: Request, res: Response) => {
       content: answers,
       status: 'submitted',
       submitted_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      is_anonymous: isAnonymous
     };
 
     if (finalResponseId) {
@@ -486,7 +488,7 @@ router.get('/api/forms/:id/responses', async (req: Request, res: Response) => {
   try {
     const { data: responses, error: responseError } = await supabase
       .from('form_responses')
-      .select('id, user_id, status, submitted_at, updated_at, content')
+      .select('id, user_id, status, submitted_at, updated_at, content, is_anonymous')
       .eq('form_id', formId)
       .eq('status', 'submitted')
       .order('submitted_at', { ascending: true });
@@ -512,15 +514,19 @@ router.get('/api/forms/:id/responses', async (req: Request, res: Response) => {
     }
 
     const result = responses.map(r => {
-      const profile = profileMap.get(r.user_id);
+      const isAnon = r.is_anonymous;
+      // 匿名の場合はプロフィール情報を完全に遮断し、user_idもダミーにする
+      const profile = isAnon ? null : profileMap.get(r.user_id);
+      
       return {
         response_id: r.id,
-        user_id: r.user_id,
+        user_id: isAnon ? `anon_${r.id}` : r.user_id, // ID推測防止
+        is_anonymous: isAnon,
         submitted_at: r.submitted_at,
         updated_at: r.updated_at,
-        name_english: profile?.name_english || '不明なユーザー',
-        name_kanji: profile?.name_kanji || '',
-        avatar_link: profile?.avatar_link || null,
+        name_english: isAnon ? '匿名ユーザー' : (profile?.name_english || '不明なユーザー'),
+        name_kanji: isAnon ? '' : (profile?.name_kanji || ''),
+        avatar_link: isAnon ? null : (profile?.avatar_link || null),
         content: r.content || {},
       };
     });

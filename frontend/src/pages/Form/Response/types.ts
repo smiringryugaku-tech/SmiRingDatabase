@@ -11,6 +11,7 @@ export type ResponseSummary = {
   name_kanji: string;
   avatar_link: string | null;
   content: Record<string, any>; // { [questionId]: value }
+  is_anonymous: boolean;
 };
 
 export type TabProps = {
@@ -25,16 +26,16 @@ export type TabProps = {
 
 // 回答者の表示名を返すヘルパー
 export function getDisplayName(
-  userId: string,
-  nameEnglish: string,
+  response: ResponseSummary,
   indexMap: Map<string, number>,
-  isAnonymous: boolean
+  isGlobalAnonymous: boolean
 ): string {
-  if (isAnonymous) {
-    const idx = indexMap.get(userId) ?? '?';
+  // レコード自身が匿名フラグを持っている、またはフォーム全体が現在匿名設定の場合
+  if (response.is_anonymous || isGlobalAnonymous) {
+    const idx = indexMap.get(response.user_id) ?? '?';
     return `回答者 ${idx}`;
   }
-  return nameEnglish || '不明なユーザー';
+  return response.name_english || '不明なユーザー';
 }
 
 // 回答値を人間が読める文字列に変換するヘルパー

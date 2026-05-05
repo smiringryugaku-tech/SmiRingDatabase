@@ -8,21 +8,34 @@ import NavSelector from './NavSelector';
 
 export default function IndividualTab({ title, description, questions, responses, indexMap, isAnonymous }: TabProps) {
   const [searchParams, setSearchParams] = useSearchParams();
+  // responseIdを優先、フォールバックとしてuserIdも対応
+  const urlResponseId = searchParams.get('responseId') || null;
   const urlUserId = searchParams.get('userId') || null;
 
-  // URLのuserId → インデックスを解決。なければデフォルト0
-  const initialIndex = urlUserId
-    ? Math.max(0, responses.findIndex(r => r.user_id === urlUserId))
-    : 0;
-  const [selectedIndex, setSelectedIndex] = useState(initialIndex);
-
-  // URLのuserIdが変わったらindexも同期
-  useEffect(() => {
+  // responseId → インデックスを解決。なければuserIdでフォールバック。それもなければデフォルト0
+  const resolveInitialIndex = () => {
+    if (urlResponseId) {
+      const idx = responses.findIndex(r => r.response_id === urlResponseId);
+      if (idx >= 0) return idx;
+    }
     if (urlUserId) {
+      const idx = responses.findIndex(r => r.user_id === urlUserId);
+      if (idx >= 0) return idx;
+    }
+    return 0;
+  };
+  const [selectedIndex, setSelectedIndex] = useState(resolveInitialIndex);
+
+  // URLのresponseIdが変わったらindexも同期
+  useEffect(() => {
+    if (urlResponseId) {
+      const idx = responses.findIndex(r => r.response_id === urlResponseId);
+      if (idx >= 0) setSelectedIndex(idx);
+    } else if (urlUserId) {
       const idx = responses.findIndex(r => r.user_id === urlUserId);
       if (idx >= 0) setSelectedIndex(idx);
     }
-  }, [urlUserId, responses]);
+  }, [urlResponseId, urlUserId, responses]);
 
   if (responses.length === 0) return null;
 
@@ -32,26 +45,26 @@ export default function IndividualTab({ title, description, questions, responses
   const navigateTo = (index: number) => {
     const clamped = Math.max(0, Math.min(total - 1, index));
     setSelectedIndex(clamped);
-    const userId = responses[clamped]?.user_id;
-    if (userId) {
+    const responseId = responses[clamped]?.response_id;
+    if (responseId) {
       setSearchParams(prev => {
         const next = new URLSearchParams(prev);
-        next.set('userId', userId);
+        next.set('responseId', responseId);
+        next.delete('userId'); // 古いuserIdパラメータをクリーンアップ
         return next;
       });
     }
   };
 
   const displayName = getDisplayName(
-    selectedResponse.user_id,
-    selectedResponse.name_english,
+    selectedResponse,
     indexMap,
     isAnonymous
   );
 
   // NavSelector用アイテムリスト
   const navItems = responses.map((r) => {
-    const name = getDisplayName(r.user_id, r.name_english, indexMap, isAnonymous);
+    const name = getDisplayName(r, indexMap, isAnonymous);
     const date = new Date(r.submitted_at).toLocaleString('ja-JP', {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     });
@@ -100,7 +113,7 @@ export default function IndividualTab({ title, description, questions, responses
           readonlyInfo={{
             displayName,
             submittedAt: selectedResponse.submitted_at,
-            avatarLink: isAnonymous ? null : selectedResponse.avatar_link,
+            avatarLink: (selectedResponse.is_anonymous || isAnonymous) ? null : selectedResponse.avatar_link,
           }}
         />
       </div>

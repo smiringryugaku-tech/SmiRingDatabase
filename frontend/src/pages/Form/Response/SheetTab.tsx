@@ -12,8 +12,8 @@ export default function SheetTab({ questions, responses, indexMap, isAnonymous }
     setSearchParams({ mode: 'responses', tab: 'question', questionId });
   };
 
-  const goToIndividual = (userId: string) => {
-    setSearchParams({ mode: 'responses', tab: 'individual', userId });
+  const goToIndividual = (responseId: string) => {
+    setSearchParams({ mode: 'responses', tab: 'individual', responseId });
   };
 
   return (
@@ -66,20 +66,22 @@ export default function SheetTab({ questions, responses, indexMap, isAnonymous }
           </thead>
           <tbody>
             {responses.map((resp) => {
-              const displayName = getDisplayName(resp.user_id, resp.name_english, indexMap, isAnonymous);
-              const isClickable = !isAnonymous;
+              const displayName = getDisplayName(resp, indexMap, isAnonymous);
+              // 常に個人別タブに飛べるようにする
+              const isClickable = true;
 
               return (
                 <tr key={resp.response_id} className="hover:bg-gray-50 transition-colors">
                   {/* 回答者名セル（左固定） */}
                   <td
-                    className={`${stickyLabels ? 'sticky left-0 z-10' : ''} bg-white border-b border-r border-gray-200 px-4 py-3 font-medium whitespace-nowrap ${isClickable ? 'cursor-pointer hover:bg-purple-50 hover:text-purple-700' : 'text-gray-600'}`}
+                    className={`${stickyLabels ? 'sticky left-0 z-10' : ''} bg-white border-b border-r border-gray-200 px-4 py-3 font-medium whitespace-nowrap cursor-pointer hover:bg-purple-50 hover:text-purple-700`}
                     style={{ minWidth: 180 }}
-                    onClick={() => isClickable && goToIndividual(resp.user_id)}
-                    title={isClickable ? '個人別タブで見る' : undefined}
+                    onClick={() => goToIndividual(resp.response_id)}
+                    title="個人別タブで見る"
                   >
                     <div className="flex items-center gap-2">
-                      {!isAnonymous && (
+                      {/* アバターは匿名でない時だけ表示 */}
+                      {!(resp.is_anonymous || isAnonymous) && (
                         <div className="w-7 h-7 rounded-full bg-purple-100 overflow-hidden flex-shrink-0 flex items-center justify-center text-xs font-bold text-purple-700">
                           {resp.avatar_link
                             ? <img src={resp.avatar_link} className="w-full h-full object-cover" alt="" />
@@ -89,7 +91,7 @@ export default function SheetTab({ questions, responses, indexMap, isAnonymous }
                       )}
                       <div>
                         <p className="text-sm font-bold text-gray-800">{displayName}</p>
-                        {!isAnonymous && resp.name_kanji && (
+                        {isClickable && resp.name_kanji && (
                           <p className="text-[10px] text-gray-400">{resp.name_kanji}</p>
                         )}
                       </div>

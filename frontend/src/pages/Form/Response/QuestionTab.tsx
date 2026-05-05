@@ -73,8 +73,8 @@ export default function QuestionTab({ questions, responses, indexMap, isAnonymou
     const respondents = userIds.map(uid => {
       const r = responses.find(r => r.user_id === uid);
       return {
-        displayName: getDisplayName(uid, r?.name_english ?? '', indexMap, isAnonymous),
-        avatarLink: isAnonymous ? null : (r?.avatar_link ?? null),
+        displayName: r ? getDisplayName(r, indexMap, isAnonymous) : '不明なユーザー',
+        avatarLink: (r?.is_anonymous || isAnonymous) ? null : (r?.avatar_link ?? null),
       };
     });
     setModal({ questionTitle: selectedQuestion.title || '無題の質問', optionLabel, respondents });
@@ -148,7 +148,7 @@ export default function QuestionTab({ questions, responses, indexMap, isAnonymou
             <GridBarView question={selectedQuestion} responses={responses} onBarClick={openModal} />
           )}
           {(selectedQuestion.type === 'short_text' || selectedQuestion.type === 'long_text_md') && (
-            <TextBubbleView question={selectedQuestion} responses={responses} />
+            <TextBubbleView question={selectedQuestion} responses={responses} indexMap={indexMap} isAnonymous={isAnonymous} />
           )}
         </div>
       </div>
@@ -399,8 +399,8 @@ function GridBarView({ question, responses, onBarClick }: {
 }
 
 // ─── 💬 テキスト吹き出し ─────────────────────────────
-function TextBubbleView({ question, responses }: {
-  question: QuestionData; responses: ResponseSummary[];
+function TextBubbleView({ question, responses, indexMap, isAnonymous }: {
+  question: QuestionData; responses: ResponseSummary[]; indexMap: Map<string, number>; isAnonymous: boolean;
 }) {
   const answered = responses.filter(r => {
     const v = r.content?.[question.id];
@@ -416,13 +416,13 @@ function TextBubbleView({ question, responses }: {
         return (
           <div key={r.response_id} className="flex gap-3 items-start">
             <div className="w-8 h-8 rounded-full bg-purple-100 flex-shrink-0 flex items-center justify-center text-sm font-bold text-purple-700 overflow-hidden">
-              {r.avatar_link
+              {!(r.is_anonymous || isAnonymous) && r.avatar_link
                 ? <img src={r.avatar_link} className="w-full h-full object-cover" alt="" />
-                : r.name_english?.charAt(0) || '?'}
+                : getDisplayName(r, indexMap, isAnonymous).charAt(0)}
             </div>
             <div className="flex-1 bg-white rounded-2xl rounded-tl-none px-4 py-3 border border-gray-100">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-bold text-gray-500">{r.name_english || '回答者'}</span>
+                <span className="text-xs font-bold text-gray-500">{getDisplayName(r, indexMap, isAnonymous)}</span>
                 <span className="text-[10px] text-gray-300">{date}</span>
               </div>
               <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">{text}</p>
