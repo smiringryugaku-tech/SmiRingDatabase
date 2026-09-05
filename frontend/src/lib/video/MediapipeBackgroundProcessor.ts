@@ -103,6 +103,10 @@ export type MediapipeBackgroundOptions = {
   invertMask?: boolean;
 };
 
+// Below this, two confidence averages are indistinguishable from rounding noise
+// on a dead (all-zero) warm-up frame — not evidence of which side is which.
+const MIN_POLARITY_GAP = 0.05;
+
 const DEFAULTS = {
   mode: 'blur' as BackgroundMode,
   target: 'background' as EffectTarget,
@@ -324,10 +328,11 @@ export class MediapipeBackgroundProcessor implements TrackProcessor<Track.Kind.V
   /**
    * How to read the confidence mask, as a 0/1 shader uniform.
    *
-   * An explicit `invertMask` wins. Otherwise use what detectPolarity measured,
-   * and until it has measured anything assume the mask scores background: both
-   * bundled models put background at category 0, so that is the safer of the
-   * two guesses to start from — getting it wrong blurs the person instead.
+   * An explicit `invertMask` wins. Otherwise use what detectPolarity measured;
+   * until it has measured anything (typically just the first frame or two)
+   * assume the mask scores background, an arbitrary starting guess — which
+   * model puts what at which index turned out not to be a reliable way to
+   * settle this, see detectPolarity.
    */
   private get resolvedInvert(): number {
     if (this.options.invertMask !== undefined) return this.options.invertMask ? 1 : 0;
@@ -482,9 +487,6 @@ export class MediapipeBackgroundProcessor implements TrackProcessor<Track.Kind.V
       canvas: this.canvas,
       runningMode: 'VIDEO',
       outputConfidenceMasks: true,
-      // Only consumed by the polarity fallback below; never read back once the
-      // polarity is known, so leaving it on costs a texture we don't download.
-      outputCategoryMask: true,
     });
 
     // Keep the label map for picking which mask to read. Deliberately do NOT
@@ -497,11 +499,19 @@ export class MediapipeBackgroundProcessor implements TrackProcessor<Track.Kind.V
   /**
    * Works out whether the confidence mask scores "background" or "subject".
    *
-   * Both bundled models put background at category 0, and MediaPipe documents
-   * confidenceMasks[i] as tracking category i — but the binary selfie model
-   * ships no label map, so there is nothing to read that from at runtime.
-   * Rather than trust a guess, measure it, with a second method to fall back on
-   * so this cannot quietly give up and leave the effect inverted.
+   * This deliberately does not trust the categoryMask's numbering (category 0
+   * is not consistently "background" across models — the multiclass model's own
+   * label list puts "background" at 0, but the binary selfie model's single
+   * category 0 turned out empirically to be the *subject*) or the model's label
+   * list (same problem: a label named "background" does not guarantee which
+   * confidence channel or category id it lines up with). Both are guesses about
+   * a per-model convention.
+   *
+   * What does hold across framings: in a webcam shot the outer border of the
+   * frame is background and the centre band is the subject. That is a fact
+   * about the shot, not about the model, so it is what settles polarity here —
+   * whichever region has the higher average confidence tells us what "high
+   * confidence" means for this mask.
    */
   private detectPolarity(result: ImageSegmenterResult) {
     const confidenceMask = result.confidenceMasks?.[this.maskIndex];
@@ -512,38 +522,6 @@ export class MediapipeBackgroundProcessor implements TrackProcessor<Track.Kind.V
     const height = confidenceMask.height;
     if (!confidences.length || width < 8 || height < 8) return;
 
-    // Preferred: the category mask states outright which pixels are background,
-    // so comparing the confidence values over each group settles it.
-    const categoryMask = result.categoryMask;
-    if (categoryMask) {
-      const categories = categoryMask.getAsUint8Array();
-      if (categories.length === confidences.length) {
-        let backgroundSum = 0;
-        let backgroundCount = 0;
-        let subjectSum = 0;
-        let subjectCount = 0;
-        // Every 7th pixel is far more than enough for two means.
-        for (let i = 0; i < categories.length; i += 7) {
-          if (categories[i] === 0) {
-            backgroundSum += confidences[i];
-            backgroundCount += 1;
-          } else {
-            subjectSum += confidences[i];
-            subjectCount += 1;
-          }
-        }
-        const total = backgroundCount + subjectCount;
-        // An all-person or all-background frame tells us nothing; wait for a better one.
-        if (total > 0 && backgroundCount / total >= 0.05 && subjectCount / total >= 0.05) {
-          this.invert = backgroundSum / backgroundCount > subjectSum / subjectCount ? 1 : 0;
-          return;
-        }
-      }
-    }
-
-    // Fallback for a model with no category mask: in webcam framing the outer
-    // border is background and the middle is the subject. Crude, but it only has
-    // to answer which of two directions the mask reads.
     let borderSum = 0;
     let borderCount = 0;
     let centreSum = 0;
@@ -568,8 +546,16 @@ export class MediapipeBackgroundProcessor implements TrackProcessor<Track.Kind.V
       }
     }
 
-    if (borderCount > 0 && centreCount > 0) {
-      this.invert = borderSum / borderCount > centreSum / centreCount ? 1 : 0;
+    if (borderCount === 0 || centreCount === 0) return;
+
+    const borderAvg = borderSum / borderCount;
+    const centreAvg = centreSum / centreCount;
+    // A warm-up frame (segmenter not settled yet, or camera still black) can
+    // report near-zero confidence everywhere; the two averages then differ only
+    // by rounding noise, and locking onto whichever is a hair larger is a coin
+    // flip. Wait for a frame with an actual, meaningful gap instead.
+    if (Math.abs(borderAvg - centreAvg) >= MIN_POLARITY_GAP) {
+      this.invert = borderAvg > centreAvg ? 1 : 0;
     }
   }
 

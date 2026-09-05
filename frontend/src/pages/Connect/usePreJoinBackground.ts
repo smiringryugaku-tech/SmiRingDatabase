@@ -54,12 +54,6 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
       nextQuality: SegmentationQuality,
       nextTarget: EffectTarget,
     ) => {
-      console.log('[PreJoin] applyEffect: called', {
-        nextMode,
-        nextQuality,
-        currentProcessorName: track?.getProcessor()?.name,
-        stack: new Error().stack,
-      });
       if (!track) return;
 
       if (nextMode === 'off') {

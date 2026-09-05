@@ -1154,14 +1154,6 @@ function CustomVideoConference({
         !!(t as { publication?: unknown }).publication,
     );
   const layoutKey = hasLocalCameraPublication ? 'camera-live' : 'camera-pending';
-  console.log('[CustomVideoConference] render', {
-    layoutKey,
-    hasLocalCameraPublication,
-    gridTracksLen: layout.gridTracks.length,
-    gridTracksLocalCam: layout.gridTracks
-      .filter((t) => t.participant.isLocal && t.source === Track.Source.Camera)
-      .map((t) => ({ hasPublication: 'publication' in t && !!(t as { publication?: unknown }).publication })),
-  });
 
   // Mini-room panel, opened by the control-bar button. Visible/openable by everyone —
   // MiniRoomPanel itself branches host vs. non-host content.
@@ -1425,27 +1417,9 @@ function CallRoomInner({
   // showing the pre-publish placeholder indefinitely (until some unrelated event,
   // e.g. another participant joining, forces a recompute).
   const [, forcePublishRerender] = useReducer((c: number) => c + 1, 0);
-  useEffect(() => {
-    const logLocalTrackPublished = (pub: unknown) => {
-      console.log('[CallRoomPage] RoomEvent.LocalTrackPublished fired', pub);
-    };
-    room.on(RoomEvent.LocalTrackPublished, logLocalTrackPublished);
-    return () => {
-      room.off(RoomEvent.LocalTrackPublished, logLocalTrackPublished);
-    };
-  }, [room]);
 
   useEffect(() => {
     const publishPending = () => {
-      console.log('[CallRoomPage] publishPending: fired', {
-        roomState: room.state,
-        hasVideoTrack: !!pendingVideoTrack,
-        hasAudioTrack: !!pendingAudioTrack,
-        videoPublishInFlight: videoPublishInFlightRef.current,
-        audioPublishInFlight: audioPublishInFlightRef.current,
-        existingCameraPub: !!localParticipant.getTrackPublication(Track.Source.Camera),
-        existingMicPub: !!localParticipant.getTrackPublication(Track.Source.Microphone),
-      });
       void (async () => {
         try {
           if (
@@ -1454,25 +1428,7 @@ function CallRoomInner({
             !localParticipant.getTrackPublication(Track.Source.Camera)
           ) {
             videoPublishInFlightRef.current = true;
-            const processor = pendingVideoTrack.getProcessor();
-            const settings = pendingVideoTrack.mediaStreamTrack.getSettings();
-            console.log('[CallRoomPage] publishing video track', {
-              hasProcessor: !!processor,
-              processorName: processor?.name,
-              processedTrack: !!processor?.processedTrack,
-              readyState: pendingVideoTrack.mediaStreamTrack.readyState,
-              muted: pendingVideoTrack.mediaStreamTrack.muted,
-              enabled: pendingVideoTrack.mediaStreamTrack.enabled,
-              settings,
-            });
-            const pub = await localParticipant.publishTrack(pendingVideoTrack);
-            console.log('[CallRoomPage] video publish result', {
-              sid: pub.trackSid,
-              isMuted: pub.isMuted,
-              isSubscribed: pub.isSubscribed,
-              dimensions: pub.dimensions,
-              trackIsSameObject: pub.track === pendingVideoTrack,
-            });
+            await localParticipant.publishTrack(pendingVideoTrack);
             forcePublishRerender();
             // DIAGNOSTIC: an immediate re-render alone didn't fix this (confirmed by
             // the previous test round) — useTracks() apparently needs its own
@@ -1514,14 +1470,6 @@ function CallRoomInner({
     // silently dropped mute/unmute refreshes.
     { onlySubscribed: false },
   );
-
-  {
-    const localCam = tracks.find((t) => t.participant.isLocal && t.source === Track.Source.Camera);
-    console.log('[CallRoomInner] render: local camera track entry', {
-      found: !!localCam,
-      hasPublication: !!(localCam as { publication?: unknown } | undefined)?.publication,
-    });
-  }
 
   // Owns layout mode, pins, speaker tracking and screen-share auto-focus. Replaces
   // LiveKit's single-track `LayoutContext` pin entirely. Lifted up to this level
