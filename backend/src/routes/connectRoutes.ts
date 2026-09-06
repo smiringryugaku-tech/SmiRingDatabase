@@ -1155,6 +1155,67 @@ router.get(
   },
 );
 
+// DELETE /api/connect/recordings/:id -> delete a recording and its R2 objects
+router.delete(
+  '/api/connect/recordings/:id',
+  authenticate,
+  requirePermission('connect_recording', 'write'),
+  async (req: Request, res: Response) => {
+    try {
+      const recordingId = req.params.id;
+
+      // 1. レコード取得
+      const { data: recording, error: fetchError } = await supabase
+        .from('connect_recordings')
+        .select('id, r2_key, thumbnail_key')
+        .eq('id', recordingId)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+      if (!recording) {
+        return res.status(404).json({ error: '録画が見つかりません' });
+      }
+
+      // 2. R2上の成果物（動画・サムネイル）を削除
+      const deletePromises: Promise<any>[] = [];
+      if (recording.r2_key) {
+        deletePromises.push(
+          r2.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: recording.r2_key })).catch((e) => {
+            console.warn('[Connect] Failed to delete r2_key:', recording.r2_key, e);
+          }),
+        );
+      }
+      if (recording.thumbnail_key) {
+        deletePromises.push(
+          r2.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: recording.thumbnail_key })).catch((e) => {
+            console.warn('[Connect] Failed to delete thumbnail_key:', recording.thumbnail_key, e);
+          }),
+        );
+      }
+      await Promise.all(deletePromises);
+
+      // 3. トラック一覧レコードを削除
+      await supabase
+        .from('connect_recording_tracks')
+        .delete()
+        .eq('recording_id', recordingId);
+
+      // 4. 録画レコード本体を削除
+      const { error: deleteError } = await supabase
+        .from('connect_recordings')
+        .delete()
+        .eq('id', recordingId);
+
+      if (deleteError) throw deleteError;
+
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error('[Connect] DELETE /recordings/:id failed:', error);
+      return res.status(500).json({ error: error.message });
+    }
+  },
+);
+
 // POST /api/connect/webhook - LiveKit webhook receiver.
 // No `authenticate` here: this is called by the LiveKit server itself, not a logged-in
 // user. Authenticity is verified via the signed `Authorization` header instead (see

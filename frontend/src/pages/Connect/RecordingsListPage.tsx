@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Film, Loader2, Play, Video } from 'lucide-react';
+import { ArrowLeft, Film, Loader2, Play, Trash2, Video } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
+import { usePermission } from '../../hooks/usePermission';
 
 interface Recording {
   id: string;
@@ -28,8 +29,10 @@ const STATUS_LABEL: Record<Recording['status'], string> = {
 
 export default function RecordingsListPage() {
   const navigate = useNavigate();
+  const canDelete = usePermission('connect_recording', 'write');
   const [recordings, setRecordings] = useState<Recording[] | null>(null);
   const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     apiClient
@@ -41,6 +44,26 @@ export default function RecordingsListPage() {
       })
       .catch((e: any) => setError(e.message ?? '録画一覧の取得に失敗しました'));
   }, []);
+
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!window.confirm('この録画を削除してもよろしいですか？\nこの操作は取り消せません。')) {
+      return;
+    }
+    setDeletingId(id);
+    try {
+      const res = await apiClient.delete(`/api/connect/recordings/${id}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? '録画の削除に失敗しました');
+      }
+      setRecordings((prev) => (prev ? prev.filter((r) => r.id !== id) : []));
+    } catch (err: any) {
+      alert(err.message ?? '録画の削除に失敗しました');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4 py-10 md:px-8">
@@ -64,18 +87,18 @@ export default function RecordingsListPage() {
         </div>
 
         {error && (
-          <div className="px-4 py-3 bg-rose-50 border border-rose-200 rounded-xl text-sm font-semibold text-rose-600">
+          <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-2xl text-sm font-semibold text-red-700 shadow-sm">
             {error}
           </div>
         )}
 
         {!recordings && !error && (
           <div className="flex justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
           </div>
         )}
 
-        {recordings?.length === 0 && (
+        {recordings && recordings.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
             <Video className="w-10 h-10 mb-3" />
             <p className="text-sm font-semibold">録画はまだありません</p>
@@ -87,11 +110,12 @@ export default function RecordingsListPage() {
             {recordings.map((recording) => {
               const isPlayable = recording.status === 'completed';
               return (
-                <button
+                <div
                   key={recording.id}
                   onClick={() => isPlayable && navigate(`/connect/recordings/${recording.id}`)}
-                  disabled={!isPlayable}
-                  className="text-left bg-white border border-slate-100 rounded-3xl overflow-hidden shadow-sm hover:shadow-md hover:border-indigo-200 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed group"
+                  className={`text-left bg-white border border-slate-100 rounded-3xl overflow-hidden shadow-sm hover:shadow-md hover:border-indigo-200 transition-all duration-200 group ${
+                    isPlayable ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'
+                  }`}
                 >
                   <div className="relative aspect-video bg-gray-100 flex items-center justify-center overflow-hidden">
                     {recording.thumbnailUrl ? (
@@ -118,9 +142,26 @@ export default function RecordingsListPage() {
                     )}
                   </div>
                   <div className="p-4 space-y-1">
-                    <h3 className="font-black text-gray-900 text-sm line-clamp-1">
-                      {recording.roomTitle || recording.roomId}
-                    </h3>
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="font-black text-gray-900 text-sm line-clamp-1 flex-1">
+                        {recording.roomTitle || recording.roomId}
+                      </h3>
+                      {canDelete && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDelete(e, recording.id)}
+                          disabled={deletingId === recording.id}
+                          className="p-1.5 -mr-1.5 -mt-1 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 disabled:opacity-50"
+                          title="録画を削除"
+                        >
+                          {deletingId === recording.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-rose-500" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 text-[11px] text-gray-400 font-semibold">
                       <span>{new Date(recording.createdAt).toLocaleDateString('ja-JP')}</span>
                       {recording.durationSeconds && (
@@ -131,7 +172,7 @@ export default function RecordingsListPage() {
                       )}
                     </div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>

@@ -4,7 +4,7 @@ import {
   isTrackReference,
   type TrackReferenceOrPlaceholder,
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
+import { RemoteTrackPublication, Track, VideoQuality } from 'livekit-client';
 
 /** Zoom/pan transform applied on top of the fitted video box. Purely local. */
 export interface ZoomTransform {
@@ -65,6 +65,17 @@ export default function ClampedVideoTrack({
 
   const isRef = isTrackReference(trackRef);
   const isScreenShare = trackRef.source === Track.Source.ScreenShare;
+
+  // 画面共有トラックは文字の鮮明さが重要なので、受信側でも最高品質（HIGH）レイヤーを要求
+  useEffect(() => {
+    if (
+      isRef &&
+      isScreenShare &&
+      trackRef.publication instanceof RemoteTrackPublication
+    ) {
+      trackRef.publication.setVideoQuality(VideoQuality.HIGH);
+    }
+  }, [isRef, isScreenShare, trackRef]);
 
   useEffect(() => {
     if (!containerEl) return;

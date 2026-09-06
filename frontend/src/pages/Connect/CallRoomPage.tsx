@@ -806,7 +806,10 @@ function useScreenShareToggle() {
 
   const toggleShare = useCallback(async () => {
     try {
-      await localParticipant.setScreenShareEnabled(!isScreenShareEnabled);
+      await localParticipant.setScreenShareEnabled(!isScreenShareEnabled, {
+        resolution: ScreenSharePresets.original.resolution,
+        contentHint: 'detail',
+      });
     } catch (e) {
       console.error('Failed to toggle screen share:', e);
     }
@@ -2011,13 +2014,22 @@ export default function CallRoomPage() {
   // a Room-level default, not just for auto-publish.
   const roomOptions: RoomOptions = useMemo(
     () => ({
-      adaptiveStream: true,
+      adaptiveStream: {
+        pixelDensity: 'screen',
+      },
       dynacast: true,
       publishDefaults: {
         videoEncoding: VideoPresets.h720.encoding,
         videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
-        screenShareEncoding: ScreenSharePresets.h1080fps15.encoding,
-        screenShareSimulcastLayers: [ScreenSharePresets.h720fps5],
+        screenShareEncoding: {
+          maxBitrate: 6_000_000,
+          maxFramerate: 15,
+          priority: 'high',
+        },
+        screenShareSimulcastLayers: [
+          ScreenSharePresets.h720fps5,
+          ScreenSharePresets.h1080fps15,
+        ],
         audioPreset: { maxBitrate: 32_000 },
         dtx: true,
         red: true,

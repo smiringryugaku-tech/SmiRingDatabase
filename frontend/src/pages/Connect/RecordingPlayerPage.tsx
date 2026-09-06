@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Trash2 } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
+import { usePermission } from '../../hooks/usePermission';
 
 interface Recording {
   id: string;
@@ -16,8 +17,10 @@ interface Recording {
 export default function RecordingPlayerPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const canDelete = usePermission('connect_recording', 'write');
   const [recording, setRecording] = useState<Recording | null>(null);
   const [error, setError] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // 画面遷移時にスクロール位置を最上部にリセット
   useEffect(() => {
@@ -39,6 +42,25 @@ export default function RecordingPlayerPage() {
       .catch((e: any) => setError(e.message ?? '録画の取得に失敗しました'));
   }, [id]);
 
+  const handleDelete = async () => {
+    if (!id) return;
+    if (!window.confirm('この録画を削除してもよろしいですか？\nこの操作は取り消せません。')) {
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      const res = await apiClient.delete(`/api/connect/recordings/${id}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? '録画の削除に失敗しました');
+      }
+      navigate('/connect/recordings');
+    } catch (err: any) {
+      alert(err.message ?? '録画の削除に失敗しました');
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4 py-8 md:px-8">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -50,6 +72,22 @@ export default function RecordingPlayerPage() {
             <ArrowLeft className="w-4 h-4" />
             <span>録画一覧に戻る</span>
           </button>
+
+          {canDelete && (
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="flex items-center gap-2 px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold text-sm rounded-xl shadow-sm hover:shadow transition-all duration-200 active:scale-95 disabled:opacity-50"
+              title="録画を削除"
+            >
+              {isDeleting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-rose-500" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              <span>削除</span>
+            </button>
+          )}
         </div>
 
         {error && (
