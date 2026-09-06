@@ -163,9 +163,16 @@ function buildTrackEgressOutput(key: string): DirectFileOutput {
  * Also records the moment recording actually began for this track in our own DB
  * (`connect_recording_tracks`), rather than leaving the compositor to reconstruct it later
  * from LiveKit's `listEgress` — in practice that came back without a start time for
- * tracks added mid-recording (a late joiner, screen share switched on), for reasons that
- * didn't point to any single fixable cause on our side. Writing it ourselves, right when
- * we know it, removes the dependency on that lookup being reliable after the fact.
+ * tracks added mid-recording, traced since to a key-sanitization bug on our own side
+ * (trackIds contain `_`, which was being rewritten to `-`), not an unreliable API. Still,
+ * writing it ourselves removes the dependency on that lookup entirely.
+ *
+ * The timestamp is captured *before* calling startTrackEgress, not after it resolves:
+ * `startTrackEgress` is a round trip to the Hetzner box, and its latency varies per call
+ * (tens to a few hundred ms) — timestamping on the response would bake that jitter into
+ * offsetMs, so two tracks started in the same `Promise.all` batch (e.g. everyone already
+ * in the room when recording begins) could end up looking like they started noticeably
+ * apart even though the request was fired for both at the same instant.
  */
 export async function startTrackRecording(
   roomId: string,
@@ -175,6 +182,7 @@ export async function startTrackRecording(
   trackId: string,
 ): Promise<boolean> {
   if (!egressClient) return false;
+  const requestedAt = new Date();
   try {
     const key = buildTempRecordingKey(roomId, identity, source, trackId);
     await egressClient.startTrackEgress(roomId, buildTrackEgressOutput(key), trackId);
@@ -183,9 +191,13 @@ export async function startTrackRecording(
     return false;
   }
 
-  const { error: dbError } = await supabase
-    .from('connect_recording_tracks')
-    .insert({ recording_id: recordingId, track_id: trackId, identity, source: sourceLabel(source) });
+  const { error: dbError } = await supabase.from('connect_recording_tracks').insert({
+    recording_id: recordingId,
+    track_id: trackId,
+    identity,
+    source: sourceLabel(source),
+    started_at: requestedAt.toISOString(),
+  });
   if (dbError) {
     // The egress is running regardless — losing this row only costs the compositor its
     // timing fallback (offset 0) for this one track, not the recording itself.

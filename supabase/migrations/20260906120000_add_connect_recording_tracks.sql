@@ -2,10 +2,12 @@
 --
 -- これは LiveKit の Egress API (listEgress) から事後に取得しようとしていたものの置き換え。
 -- 実際に運用したところ、録画開始後の track_published (画面共有ON・後から参加した人など)で
--- 追加されたトラックについて、listEgress が開始時刻を返さないケースが確認された
--- (原因不明 — おそらく自己ホストの Egress サーバー側の一覧APIの制約/タイミングによるもの)。
--- 事後にAPIへ問い合わせて復元するのではなく、egress を開始したその瞬間に自分たちのDBへ
--- 書いておく方が確実なので、こちらを正とする。
+-- 追加されたトラックについて、listEgress が開始時刻を返さないケースが確認された。
+-- (後日判明: 原因はLiveKit側ではなく、R2キー生成時のサニタイズ処理がtrack ID中の `_` を
+-- `-` に変換してしまい、listEgress の結果と突き合わせる際にキーが一致していなかったこと
+-- だった — backend/src/lib/recording.ts の sanitizeKeyPart 参照。とはいえ事後にAPIへ
+-- 問い合わせて復元するより、egress を開始したその瞬間に自分たちのDBへ書いておく方が
+-- 依存が少なく確実なので、この方式のままにしている。)
 --
 -- recording-compositor はこのテーブルを見て各トラックファイルの相対オフセットを計算する
 -- (backend/src/lib/recording.ts の startTrackRecording が書き込み、
