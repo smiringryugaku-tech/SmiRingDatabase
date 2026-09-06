@@ -993,7 +993,7 @@ router.post(
       if (insertError) throw insertError;
 
       const trackCount = participants.reduce((total, p) => total + p.tracks.length, 0);
-      const startedCount = await startRecordingForParticipants(roomId, participants);
+      const startedCount = await startRecordingForParticipants(roomId, recording.id, participants);
       if (trackCount > 0 && startedCount === 0) {
         await supabase.from('connect_recordings').update({ status: 'failed' }).eq('id', recording.id);
         return res.status(502).json({ error: '録画を開始できませんでした' });
@@ -1139,7 +1139,13 @@ router.post('/api/connect/webhook', async (req: Request, res: Response) => {
       try {
         const session = await getRecordingSession(roomService, roomId);
         if (session) {
-          await startTrackRecording(roomId, event.participant.identity, event.track.source, event.track.sid);
+          await startTrackRecording(
+            roomId,
+            session.recordingId,
+            event.participant.identity,
+            event.track.source,
+            event.track.sid,
+          );
         }
       } catch (e: any) {
         console.error(`[Connect] Failed to record newly published track in ${roomId}:`, e?.message);

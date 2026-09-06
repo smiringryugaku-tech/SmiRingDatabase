@@ -2,21 +2,17 @@
 // a local .env file.
 import * as dotenv from 'dotenv';
 dotenv.config();
-import { createClient } from '@supabase/supabase-js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { concatSegments, mixAudio, muxFinal, renderSegments } from './ffmpeg';
 import { buildLayoutSegments } from './layout';
 import { BUCKET, deleteKeys, uploadFile } from './storage';
+import { supabase } from './supabase';
 import { collectTrackSegments, recordingDurationMs } from './tracks';
 
 const ROOM_NAME = process.env.ROOM_NAME;
 const RECORDING_ID = process.env.RECORDING_ID;
-
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!, {
-  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-});
 
 async function markFailed(reason: string): Promise<void> {
   console.error(`[Compositor] Failed: ${reason}`);
@@ -31,7 +27,7 @@ async function main(): Promise<void> {
 
   const workDir = await mkdtemp(join(tmpdir(), 'compositor-'));
   try {
-    const { segments: tracks, keys } = await collectTrackSegments(ROOM_NAME, workDir);
+    const { segments: tracks, keys } = await collectTrackSegments(ROOM_NAME, RECORDING_ID, workDir);
     if (tracks.length === 0) {
       // Nothing usable was recorded — an empty room, or every egress failed to upload.
       await markFailed('no usable track files');

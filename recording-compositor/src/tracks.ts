@@ -1,7 +1,7 @@
-import { EgressClient } from 'livekit-server-sdk';
 import { join } from 'node:path';
 import { probeDurationMs } from './ffmpeg';
 import { BUCKET, downloadTo, listKeys } from './storage';
+import { supabase } from './supabase';
 
 export type TrackSourceLabel = 'camera' | 'microphone' | 'screen_share' | 'screen_share_audio' | 'unknown';
 
@@ -33,33 +33,33 @@ function parseKey(key: string): { identity: string; source: TrackSourceLabel; tr
 }
 
 /**
- * Start times come from the Egress API keyed by track id, not from the files: a recording
- * is a pile of clips that each began whenever their track was published, and without those
- * offsets a late joiner's video would be laid over the start of the call. (The API's own
- * per-file metadata is unreliable for track egress — livekit/egress#837 — so only the
- * top-level egress timestamps are used.)
+ * Start times come from our own `connect_recording_tracks` table, written by the backend
+ * the moment it calls `startTrackEgress` for each track — not from LiveKit's `listEgress`
+ * after the fact. That was tried first and turned out unreliable for tracks added mid-
+ * recording (a late joiner, screen share switched on): those came back with no start time
+ * often enough to be a real problem, not just an edge case. Recording it ourselves, right
+ * when we know it, has no such dependency.
  */
-async function fetchTrackStartTimes(roomName: string): Promise<Map<string, number>> {
-  const egressClient = new EgressClient(
-    process.env.LIVEKIT_URL!.replace(/^ws/, 'http'),
-    process.env.LIVEKIT_API_KEY!,
-    process.env.LIVEKIT_API_SECRET!,
-  );
-  const startedAtByTrack = new Map<string, number>();
-  for (const egress of await egressClient.listEgress({ roomName })) {
-    if (egress.request.case !== 'track' || !egress.startedAt) continue;
-    startedAtByTrack.set(egress.request.value.trackId, Number(egress.startedAt) / 1e6);
+async function fetchTrackStartTimes(recordingId: string): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('connect_recording_tracks')
+    .select('track_id, started_at')
+    .eq('recording_id', recordingId);
+  if (error) {
+    console.error(`[Compositor] Failed to fetch track start times for ${recordingId}:`, error);
+    return new Map();
   }
-  return startedAtByTrack;
+  return new Map(data.map((row) => [row.track_id, new Date(row.started_at).getTime()]));
 }
 
 /** Downloads every recorded track for a room and places it on a shared timeline. */
 export async function collectTrackSegments(
   roomName: string,
+  recordingId: string,
   workDir: string,
 ): Promise<{ segments: TrackSegment[]; keys: string[] }> {
   const keys = await listKeys(BUCKET, `connect/recordings-tmp/${roomName}/`);
-  const startTimes = await fetchTrackStartTimes(roomName);
+  const startTimes = await fetchTrackStartTimes(recordingId);
 
   const downloaded = await Promise.all(
     keys.map(async (key, index) => {
@@ -68,15 +68,15 @@ export async function collectTrackSegments(
         console.warn(`[Compositor] Skipping unrecognized key: ${key}`);
         return null;
       }
-      // Prefer the real start time; but a missing one (listEgress not returning this
-      // track's EgressInfo — e.g. a heavily-reused room's egress history pushing it off
-      // the API's unpaginated response) shouldn't cost someone their whole recording.
+      // Prefer the real start time; a missing row (shouldn't happen now that this is
+      // written synchronously when egress starts, but the backend's insert is best-effort
+      // — see startTrackRecording) still shouldn't cost someone their whole recording.
       // Falling back to "started with the recording" places it at worst too early, never
       // dropped — offset is re-based to the earliest known start right after this map.
       const startedAt = startTimes.get(parsed.trackId);
       if (startedAt === undefined) {
         console.warn(
-          `[Compositor] No egress start time for track ${parsed.trackId} — including it at offset 0 instead of dropping it: ${key}`,
+          `[Compositor] No recorded start time for track ${parsed.trackId} — including it at offset 0 instead of dropping it: ${key}`,
         );
       }
 

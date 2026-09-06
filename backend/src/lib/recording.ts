@@ -149,9 +149,19 @@ function buildTrackEgressOutput(key: string): DirectFileOutput {
   });
 }
 
-/** Starts recording one published track. Returns false if LiveKit rejected it. */
+/**
+ * Starts recording one published track. Returns false if LiveKit rejected it.
+ *
+ * Also records the moment recording actually began for this track in our own DB
+ * (`connect_recording_tracks`), rather than leaving the compositor to reconstruct it later
+ * from LiveKit's `listEgress` — in practice that came back without a start time for
+ * tracks added mid-recording (a late joiner, screen share switched on), for reasons that
+ * didn't point to any single fixable cause on our side. Writing it ourselves, right when
+ * we know it, removes the dependency on that lookup being reliable after the fact.
+ */
 export async function startTrackRecording(
   roomId: string,
+  recordingId: string,
   identity: string,
   source: TrackSource,
   trackId: string,
@@ -160,22 +170,32 @@ export async function startTrackRecording(
   try {
     const key = buildTempRecordingKey(roomId, identity, source, trackId);
     await egressClient.startTrackEgress(roomId, buildTrackEgressOutput(key), trackId);
-    return true;
   } catch (error: any) {
     console.error(`[Recording] startTrackEgress failed (${roomId}/${identity}/${trackId}):`, error?.message);
     return false;
   }
+
+  const { error: dbError } = await supabase
+    .from('connect_recording_tracks')
+    .insert({ recording_id: recordingId, track_id: trackId, identity, source: sourceLabel(source) });
+  if (dbError) {
+    // The egress is running regardless — losing this row only costs the compositor its
+    // timing fallback (offset 0) for this one track, not the recording itself.
+    console.error(`[Recording] Failed to record track start time (${trackId}):`, dbError);
+  }
+  return true;
 }
 
 /** Starts recording every track currently published in the room. Returns how many started. */
 export async function startRecordingForParticipants(
   roomId: string,
+  recordingId: string,
   participants: ParticipantInfo[],
 ): Promise<number> {
   const results = await Promise.all(
     participants.flatMap((participant) =>
       participant.tracks.map((track) =>
-        startTrackRecording(roomId, participant.identity, track.source, track.sid),
+        startTrackRecording(roomId, recordingId, participant.identity, track.source, track.sid),
       ),
     ),
   );

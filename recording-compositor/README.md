@@ -13,7 +13,16 @@ SmiRing Connect の録画を1本の動画に合成する Cloud Run Job。
 
 - 画面共有あり: 共有画面を左に大きく + 右の列に顔を最大10人
 - 画面共有なし: 顔を最大20人のグリッド
-- 画面共有の開始・終了ごとにタイムラインを区切り、区間ごとに描画してから連結する
+- 画面共有の開始・終了だけでなく、**カメラの参加・退出(録画開始後に誰かが参加/カメラON/OFF
+  した瞬間)でもタイムラインを区切り**、区間ごとに描画してから連結する(そうしないと、後から
+  参加した人がいる区間全体が「最終的な人数」に合わせたグリッドサイズになってしまい、その人が
+  実際にいなかった時間帯まで小さいグリッドのままになる)
+- 各トラックが「録画のどの時点から始まったか」は `connect_recording_tracks` テーブル
+  (backend が egress 開始と同時に書き込む)から取得する。以前は LiveKit の `listEgress` API
+  から事後に復元しようとしていたが、録画開始後に追加されたトラック(画面共有ON・後から参加
+  した人)について開始時刻が取得できないことがあり、原因が特定できなかったため、egress を
+  開始したその瞬間に自分たちのDBへ書く方式に変更した(`backend/src/lib/recording.ts`の
+  `startTrackRecording`)。この Job は LiveKit の API を一切呼ばない。
 - 顔の選定は「その区間でカメラがONだった時間が長い順」(カメラOFFの人はそもそもファイルが無い)
 - 音声は区間に関係なく全マイクをミックスする(画面に映っていない人の声も残る)
 
@@ -43,9 +52,8 @@ gcloud run jobs deploy recording-compositor \
   --memory 8Gi \
   --cpu 4 \
   --max-retries 1 \
-  --set-env-vars LIVEKIT_URL=...,LIVEKIT_API_KEY=...,LIVEKIT_API_SECRET=...,\
-R2_ENDPOINT=...,R2_ACCESS_KEY_ID=...,R2_SECRET_ACCESS_KEY=...,R2_BUCKET_NAME=...,\
-SUPABASE_URL=...,SUPABASE_SECRET_KEY=...
+  --set-env-vars R2_ENDPOINT=...,R2_ACCESS_KEY_ID=...,R2_SECRET_ACCESS_KEY=...,\
+R2_BUCKET_NAME=...,SUPABASE_URL=...,SUPABASE_SECRET_KEY=...
 ```
 
 値はすべて既存の backend Cloud Run サービスに設定済みのものと同じでよい(`R2_BUCKET_NAME`は
