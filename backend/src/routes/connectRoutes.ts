@@ -1115,7 +1115,7 @@ router.get(
 
 // POST /api/connect/webhook - LiveKit webhook receiver.
 // No `authenticate` here: this is called by the LiveKit server itself, not a logged-in
-// user. Authenticity is verified via the signed `Authorize` header instead (see
+// user. Authenticity is verified via the signed `Authorization` header instead (see
 // WebhookReceiver.receive below), which checks both the API key/secret and a SHA-256 of
 // the exact raw body — hence `req.rawBody` captured in index.ts's express.json() verify hook.
 router.post('/api/connect/webhook', async (req: Request, res: Response) => {
@@ -1126,7 +1126,7 @@ router.post('/api/connect/webhook', async (req: Request, res: Response) => {
 
   try {
     const rawBody = req.rawBody?.toString('utf8') ?? '';
-    const event = await webhookReceiver.receive(rawBody, req.get('Authorize'));
+    const event = await webhookReceiver.receive(rawBody, req.get('Authorization'));
 
     // Someone published a track while a recording is running — a late joiner, or a camera
     // or screen share switched on. Their track needs its own egress; the ones started when
