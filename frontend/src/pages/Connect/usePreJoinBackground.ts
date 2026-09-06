@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LocalVideoTrack } from 'livekit-client';
 import {
   MediapipeBackgroundProcessor,
-  type EffectTarget,
   supportsMediapipeBackground,
   type SegmentationQuality,
 } from '../../lib/video/MediapipeBackgroundProcessor';
@@ -10,6 +9,7 @@ import {
   useBackgroundLibrary,
   readStoredChoice,
   writeStoredChoice,
+  isMobileDevice,
   type BackgroundMode,
 } from './backgroundLibrary';
 import type { BackgroundEffectState } from './useBackgroundEffect';
@@ -32,8 +32,13 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
 
   const [mode, setMode] = useState<BackgroundMode>(stored.mode);
   const [imageId, setImageId] = useState<string | undefined>(stored.imageId);
-  const [quality, setQuality] = useState<SegmentationQuality>(stored.quality ?? 'balanced');
-  const [target, setTarget] = useState<EffectTarget>(stored.target ?? 'background');
+  // Starts at whatever the track already has attached, so a remount doesn't
+  // ping-pong a previously-upgraded processor back down to 'balanced'. See the
+  // auto-upgrade in the restore effect below for how it gets to 'high' at all.
+  const [quality, setQuality] = useState<SegmentationQuality>(() => {
+    const existing = track?.getProcessor();
+    return existing instanceof MediapipeBackgroundProcessor ? existing.quality : 'balanced';
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -48,12 +53,7 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
    * model, which is a visible stall (and a 16 MB download on the 'high' model).
    */
   const applyEffect = useCallback(
-    async (
-      nextMode: BackgroundMode,
-      nextImageId: string | undefined,
-      nextQuality: SegmentationQuality,
-      nextTarget: EffectTarget,
-    ) => {
+    async (nextMode: BackgroundMode, nextImageId: string | undefined, nextQuality: SegmentationQuality) => {
       if (!track) return;
 
       if (nextMode === 'off') {
@@ -79,9 +79,6 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
 
       if (isAttached && qualityMatches) {
         processorRef.current = current;
-        // Only the model is baked in at construction time; everything else can be
-        // swapped on the running processor, which avoids a reload stall.
-        current!.updateOptions({ target: nextTarget });
         await current!.setBackground({
           mode: nextMode === 'image' ? 'image' : 'blur',
           imageUrl: imageUrl ?? null,
@@ -92,7 +89,6 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
       const processor = new MediapipeBackgroundProcessor({
         quality: nextQuality,
         mode: nextMode === 'image' ? 'image' : 'blur',
-        target: nextTarget,
         imageUrl: imageUrl ?? null,
         blurRadius: 14,
         temporalSmoothing: 0.45,
@@ -106,33 +102,19 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
   );
 
   const commit = useCallback(
-    async (next: {
-      mode?: BackgroundMode;
-      imageId?: string;
-      quality?: SegmentationQuality;
-      target?: EffectTarget;
-    }) => {
+    async (next: { mode?: BackgroundMode; imageId?: string }) => {
       const nextMode = next.mode ?? mode;
       const nextImageId = 'imageId' in next ? next.imageId : imageId;
-      const nextQuality = next.quality ?? quality;
-      const nextTarget = next.target ?? target;
 
       setBusy(true);
       setError('');
       try {
         // Save first: the preview is a nicety, the stored choice is the point, and
         // it should stick even where the preview cannot run.
-        writeStoredChoice({
-          mode: nextMode,
-          imageId: nextImageId,
-          quality: nextQuality,
-          target: nextTarget,
-        });
+        writeStoredChoice({ mode: nextMode, imageId: nextImageId });
         setMode(nextMode);
         setImageId(nextImageId);
-        setQuality(nextQuality);
-        setTarget(nextTarget);
-        await applyEffect(nextMode, nextImageId, nextQuality, nextTarget);
+        await applyEffect(nextMode, nextImageId, quality);
       } catch (e) {
         console.error('[PreJoin] failed to apply background effect:', e);
         setError(e instanceof Error ? e.message : '背景の適用に失敗しました');
@@ -140,11 +122,14 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
         setBusy(false);
       }
     },
-    [applyEffect, mode, imageId, quality, target],
+    [applyEffect, mode, imageId, quality],
   );
 
   // The track may not exist yet on first render (still being created), or may be
   // replaced (device switch) — (re-)apply the stored effect whenever it shows up.
+  // Once that succeeds, also try upgrading a fresh 'balanced' processor up to
+  // 'high' — skipped on mobile (see isMobileDevice) — so people see the effect
+  // instantly and only pay for the bigger model in the background.
   //
   // Guard is `restoredRef.current` alone, checked and set synchronously — NOT
   // `track.getProcessor()`, which stays null until the asynchronous `applyEffect`
@@ -160,10 +145,14 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
     if (mode === 'image' && imageId && !imageUrlFor(imageId)) return;
     if (restoredRef.current) return;
     restoredRef.current = true;
-    void applyEffect(mode, imageId, quality, target).catch((e) =>
-      console.error('[PreJoin] failed to restore background effect:', e),
-    );
-  }, [supported, track, applyEffect, imageUrlFor, mode, imageId, quality, target]);
+    void applyEffect(mode, imageId, quality)
+      .then(() => {
+        if (quality === 'balanced' && !isMobileDevice()) {
+          return applyEffect(mode, imageId, 'high').then(() => setQuality('high'));
+        }
+      })
+      .catch((e) => console.error('[PreJoin] failed to restore background effect:', e));
+  }, [supported, track, applyEffect, imageUrlFor, mode, imageId, quality]);
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -172,10 +161,10 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
       try {
         const uploaded = await uploadBackground(file);
         // Select it immediately — uploading a background and not using it is not a thing.
-        await applyEffect('image', uploaded.id, quality, target);
+        await applyEffect('image', uploaded.id, quality);
         setMode('image');
         setImageId(uploaded.id);
-        writeStoredChoice({ mode: 'image', imageId: uploaded.id, quality, target });
+        writeStoredChoice({ mode: 'image', imageId: uploaded.id });
       } catch (e) {
         console.error('[PreJoin] background upload failed:', e);
         setError(e instanceof Error ? e.message : 'アップロードに失敗しました');
@@ -183,7 +172,7 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
         setBusy(false);
       }
     },
-    [applyEffect, uploadBackground, quality, target],
+    [applyEffect, uploadBackground, quality],
   );
 
   const handleDelete = useCallback(
@@ -194,10 +183,10 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
         await deleteBackground(id);
         // Deleting the background currently on screen leaves nothing to show.
         if (imageId === id) {
-          await applyEffect('blur', undefined, quality, target);
+          await applyEffect('blur', undefined, quality);
           setMode('blur');
           setImageId(undefined);
-          writeStoredChoice({ mode: 'blur', quality, target });
+          writeStoredChoice({ mode: 'blur' });
         }
       } catch (e) {
         console.error('[PreJoin] background delete failed:', e);
@@ -206,7 +195,7 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
         setBusy(false);
       }
     },
-    [applyEffect, deleteBackground, imageId, quality, target],
+    [applyEffect, deleteBackground, imageId, quality],
   );
 
   const state: BackgroundEffectState = {
@@ -214,7 +203,6 @@ export function usePreJoinBackground(track: LocalVideoTrack | null) {
     mode,
     imageId,
     quality,
-    target,
     uploads,
     busy,
     error,

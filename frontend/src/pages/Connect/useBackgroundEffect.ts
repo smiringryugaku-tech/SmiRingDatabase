@@ -3,7 +3,6 @@ import { useLocalParticipant } from '@livekit/components-react';
 import { ParticipantEvent, Track, type LocalVideoTrack } from 'livekit-client';
 import {
   MediapipeBackgroundProcessor,
-  type EffectTarget,
   supportsMediapipeBackground,
   type SegmentationQuality,
 } from '../../lib/video/MediapipeBackgroundProcessor';
@@ -11,6 +10,7 @@ import {
   useBackgroundLibrary,
   readStoredChoice,
   writeStoredChoice,
+  isMobileDevice,
   type BackgroundMode,
 } from './backgroundLibrary';
 
@@ -38,8 +38,16 @@ export function useBackgroundEffect() {
 
   const [mode, setMode] = useState<BackgroundMode>(stored.mode);
   const [imageId, setImageId] = useState<string | undefined>(stored.imageId);
-  const [quality, setQuality] = useState<SegmentationQuality>(stored.quality ?? 'balanced');
-  const [target, setTarget] = useState<EffectTarget>(stored.target ?? 'background');
+  // Starts at whatever the track already has attached (e.g. PreJoin already
+  // upgraded it to 'high' before publish) so this hook doesn't ping-pong the
+  // quality back down to 'balanced' the moment it takes over. See the
+  // auto-upgrade effect below for how a fresh track gets from 'balanced' to
+  // 'high' in the first place.
+  const [quality, setQuality] = useState<SegmentationQuality>(() => {
+    const publication = localParticipant.getTrackPublication(Track.Source.Camera);
+    const existing = (publication?.track as LocalVideoTrack | undefined)?.getProcessor();
+    return existing instanceof MediapipeBackgroundProcessor ? existing.quality : 'balanced';
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -57,12 +65,7 @@ export function useBackgroundEffect() {
    * model, which is a visible stall (and a 16 MB download on the 'high' model).
    */
   const applyEffect = useCallback(
-    async (
-      nextMode: BackgroundMode,
-      nextImageId: string | undefined,
-      nextQuality: SegmentationQuality,
-      nextTarget: EffectTarget,
-    ) => {
+    async (nextMode: BackgroundMode, nextImageId: string | undefined, nextQuality: SegmentationQuality) => {
       const track = getCameraTrack();
       if (!track) return;
 
@@ -92,9 +95,6 @@ export function useBackgroundEffect() {
 
       if (isAttached && qualityMatches) {
         processorRef.current = current;
-        // Only the model is baked in at construction time; everything else can be
-        // swapped on the running processor, which avoids a reload stall.
-        current!.updateOptions({ target: nextTarget });
         await current!.setBackground({
           mode: nextMode === 'image' ? 'image' : 'blur',
           imageUrl: imageUrl ?? null,
@@ -105,7 +105,6 @@ export function useBackgroundEffect() {
       const processor = new MediapipeBackgroundProcessor({
         quality: nextQuality,
         mode: nextMode === 'image' ? 'image' : 'blur',
-        target: nextTarget,
         imageUrl: imageUrl ?? null,
         blurRadius: 14,
         temporalSmoothing: 0.45,
@@ -119,31 +118,17 @@ export function useBackgroundEffect() {
   );
 
   const commit = useCallback(
-    async (next: {
-      mode?: BackgroundMode;
-      imageId?: string;
-      quality?: SegmentationQuality;
-      target?: EffectTarget;
-    }) => {
+    async (next: { mode?: BackgroundMode; imageId?: string }) => {
       const nextMode = next.mode ?? mode;
       const nextImageId = 'imageId' in next ? next.imageId : imageId;
-      const nextQuality = next.quality ?? quality;
-      const nextTarget = next.target ?? target;
 
       setBusy(true);
       setError('');
       try {
-        await applyEffect(nextMode, nextImageId, nextQuality, nextTarget);
+        await applyEffect(nextMode, nextImageId, quality);
         setMode(nextMode);
         setImageId(nextImageId);
-        setQuality(nextQuality);
-        setTarget(nextTarget);
-        writeStoredChoice({
-          mode: nextMode,
-          imageId: nextImageId,
-          quality: nextQuality,
-          target: nextTarget,
-        });
+        writeStoredChoice({ mode: nextMode, imageId: nextImageId });
       } catch (e) {
         console.error('[Connect] failed to apply background effect:', e);
         setError(e instanceof Error ? e.message : '背景の適用に失敗しました');
@@ -151,18 +136,25 @@ export function useBackgroundEffect() {
         setBusy(false);
       }
     },
-    [applyEffect, mode, imageId, quality, target],
+    [applyEffect, mode, imageId, quality],
   );
 
   // The camera track may be published after this mounts (joined with the camera
-  // off, or switched devices), so re-apply whenever a new one shows up.
+  // off, or switched devices), so re-apply whenever a new one shows up. Once
+  // that succeeds, also try upgrading a fresh 'balanced' processor up to
+  // 'high' — skipped on mobile (see isMobileDevice) — so people see the
+  // effect instantly and only pay for the bigger model in the background.
   useEffect(() => {
     if (!supported || mode === 'off') return;
 
     const reapply = () => {
-      void applyEffect(mode, imageId, quality, target).catch((e) =>
-        console.error('[Connect] failed to re-apply background effect:', e),
-      );
+      void applyEffect(mode, imageId, quality)
+        .then(() => {
+          if (quality === 'balanced' && !isMobileDevice()) {
+            return applyEffect(mode, imageId, 'high').then(() => setQuality('high'));
+          }
+        })
+        .catch((e) => console.error('[Connect] failed to re-apply background effect:', e));
     };
 
     reapply();
@@ -170,7 +162,7 @@ export function useBackgroundEffect() {
     return () => {
       localParticipant.off(ParticipantEvent.LocalTrackPublished, reapply);
     };
-  }, [supported, localParticipant, applyEffect, mode, imageId, quality, target]);
+  }, [supported, localParticipant, applyEffect, mode, imageId, quality]);
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -179,10 +171,10 @@ export function useBackgroundEffect() {
       try {
         const uploaded = await uploadBackground(file);
         // Select it immediately — uploading a background and not using it is not a thing.
-        await applyEffect('image', uploaded.id, quality, target);
+        await applyEffect('image', uploaded.id, quality);
         setMode('image');
         setImageId(uploaded.id);
-        writeStoredChoice({ mode: 'image', imageId: uploaded.id, quality, target });
+        writeStoredChoice({ mode: 'image', imageId: uploaded.id });
       } catch (e) {
         console.error('[Connect] background upload failed:', e);
         setError(e instanceof Error ? e.message : 'アップロードに失敗しました');
@@ -190,7 +182,7 @@ export function useBackgroundEffect() {
         setBusy(false);
       }
     },
-    [applyEffect, uploadBackground, quality, target],
+    [applyEffect, uploadBackground, quality],
   );
 
   const handleDelete = useCallback(
@@ -201,10 +193,10 @@ export function useBackgroundEffect() {
         await deleteBackground(id);
         // Deleting the background currently on screen leaves nothing to show.
         if (imageId === id) {
-          await applyEffect('blur', undefined, quality, target);
+          await applyEffect('blur', undefined, quality);
           setMode('blur');
           setImageId(undefined);
-          writeStoredChoice({ mode: 'blur', quality, target });
+          writeStoredChoice({ mode: 'blur' });
         }
       } catch (e) {
         console.error('[Connect] background delete failed:', e);
@@ -213,7 +205,7 @@ export function useBackgroundEffect() {
         setBusy(false);
       }
     },
-    [applyEffect, deleteBackground, imageId, quality, target],
+    [applyEffect, deleteBackground, imageId, quality],
   );
 
   return {
@@ -221,7 +213,6 @@ export function useBackgroundEffect() {
     mode,
     imageId,
     quality,
-    target,
     uploads,
     busy,
     error,

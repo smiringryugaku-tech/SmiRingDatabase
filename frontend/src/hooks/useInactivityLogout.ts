@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
-const TIMEOUT_MS = 30 * 60 * 1000; // 30分
+const TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24時間
 
 const ACTIVITY_EVENTS = [
   'mousemove',

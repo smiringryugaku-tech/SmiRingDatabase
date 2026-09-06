@@ -24,6 +24,7 @@ import {
 import { supportsScreenSharing } from '@livekit/components-core';
 import {
   VideoPresets,
+  ScreenSharePresets,
   Track,
   ParticipantEvent,
   RoomEvent,
@@ -1857,7 +1858,10 @@ export default function CallRoomPage() {
       adaptiveStream: true,
       dynacast: true,
       publishDefaults: {
+        videoEncoding: VideoPresets.h720.encoding,
         videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+        screenShareEncoding: ScreenSharePresets.h1080fps15.encoding,
+        screenShareSimulcastLayers: [ScreenSharePresets.h720fps5],
         audioPreset: { maxBitrate: 32_000 },
         dtx: true,
         red: true,

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { EffectTarget, SegmentationQuality } from '../../lib/video/MediapipeBackgroundProcessor';
 import { apiClient } from '../../lib/apiClient';
 
 /**
@@ -15,12 +14,13 @@ export type BackgroundMode = 'off' | 'blur' | 'image';
 
 /** Bundled in frontend/public/backgrounds/ — no network round trip, no CORS. */
 export const PRESETS = [
-  { id: 'preset:slate', label: 'スレート', url: '/backgrounds/slate.jpg' },
-  { id: 'preset:indigo', label: 'インディゴ', url: '/backgrounds/indigo.jpg' },
-  { id: 'preset:dusk', label: 'ダスク', url: '/backgrounds/dusk.jpg' },
-  { id: 'preset:forest', label: 'フォレスト', url: '/backgrounds/forest.jpg' },
-  { id: 'preset:sand', label: 'サンド', url: '/backgrounds/sand.jpg' },
-  { id: 'preset:paper', label: 'ペーパー', url: '/backgrounds/paper.jpg' },
+  { id: 'preset:smiring-brand', label: 'SmiRing', url: '/backgrounds/smiring-brand.png' },
+  { id: 'preset:cozy-shelf', label: '和室シェルフ', url: '/backgrounds/cozy-shelf.jpg' },
+  { id: 'preset:japanese-garden', label: '日本庭園', url: '/backgrounds/japanese-garden.jpg' },
+  { id: 'preset:sunroom', label: 'サンルーム', url: '/backgrounds/sunroom.jpg' },
+  { id: 'preset:beach', label: 'ビーチ', url: '/backgrounds/beach.jpg' },
+  { id: 'preset:skyline-lounge', label: 'スカイラウンジ', url: '/backgrounds/skyline-lounge.jpg' },
+  { id: 'preset:office-library', label: 'オフィスライブラリー', url: '/backgrounds/office-library.jpg' },
 ];
 
 /**
@@ -36,9 +36,10 @@ const STORAGE_KEY = 'smiring.connect.background';
 export type StoredChoice = {
   mode: BackgroundMode;
   imageId?: string;
-  quality?: SegmentationQuality;
-  target?: EffectTarget;
 };
+
+/** First-ever join, before anyone has picked anything for themselves. */
+const FIRST_TIME_DEFAULT: StoredChoice = { mode: 'image', imageId: 'preset:smiring-brand' };
 
 /**
  * The choice lives in localStorage rather than on the server: it is a property
@@ -48,14 +49,14 @@ export type StoredChoice = {
 export function readStoredChoice(): StoredChoice {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { mode: 'off' };
+    if (!raw) return FIRST_TIME_DEFAULT;
     const parsed = JSON.parse(raw) as StoredChoice;
     if (parsed.mode !== 'off' && parsed.mode !== 'blur' && parsed.mode !== 'image') {
-      return { mode: 'off' };
+      return FIRST_TIME_DEFAULT;
     }
     return parsed;
   } catch {
-    return { mode: 'off' };
+    return FIRST_TIME_DEFAULT;
   }
 }
 
@@ -65,6 +66,20 @@ export function writeStoredChoice(choice: StoredChoice) {
   } catch {
     // A full or disabled storage is not worth failing the effect over.
   }
+}
+
+/**
+ * Coarse, cheap check used only to decide whether it's worth even trying the
+ * heavier high-quality segmentation model. Mobile GPUs are enough of a mixed
+ * bag that attempting it there is more often a stutter and a wasted 16MB
+ * download than a real quality win — so phones stay on the light model rather
+ * than trying and measuring.
+ */
+export function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const uaData = (navigator as unknown as { userAgentData?: { mobile?: boolean } }).userAgentData;
+  if (uaData && typeof uaData.mobile === 'boolean') return uaData.mobile;
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
 /** Loads, uploads and deletes the user's saved backgrounds. */

@@ -95,22 +95,41 @@ export default function ClampedVideoTrack({
     }
   }, [trackRef, isRef]);
 
-  const onVideoLoadedMetadata = useCallback(
-    (e: React.SyntheticEvent<HTMLVideoElement>) => {
-      const video = e.currentTarget;
-      console.log('[ClampedVideoTrack] loadedmetadata', {
-        isLocal: trackRef.participant?.isLocal,
-        identity: trackRef.participant?.identity,
-        source: trackRef.source,
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight,
-      });
-      if (video.videoWidth > 0 && video.videoHeight > 0) {
-        setNativeRatio(video.videoWidth / video.videoHeight);
+  // Below this, a reading is more likely a transient placeholder (some browsers
+  // report a tiny intrinsic size, e.g. 2x2, on the very first frame before the
+  // real negotiated resolution is known) than the video's actual shape.
+  const MIN_PLAUSIBLE_DIMENSION = 32;
+
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+
+  const onVideoLoadedMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget;
+    if (video.videoWidth >= MIN_PLAUSIBLE_DIMENSION && video.videoHeight >= MIN_PLAUSIBLE_DIMENSION) {
+      setNativeRatio(video.videoWidth / video.videoHeight);
+    }
+  }, []);
+
+  // Swapping which MediaStreamTrack feeds this element (e.g. a background
+  // effect's processed track being attached/detached) mutates the existing
+  // MediaStream's track list rather than assigning a new `srcObject` — see
+  // livekit-client's attachToElement/detachTrack — so the browser does not
+  // fire another `loadedmetadata` for it. It does fire `resize` whenever the
+  // active video's intrinsic dimensions actually change, so that's what
+  // catches a track swap changing the aspect ratio; `loadedmetadata` alone
+  // only ever reflects whatever the very first attached track happened to be.
+  useEffect(() => {
+    if (!videoEl) return;
+    const handleResize = () => {
+      if (
+        videoEl.videoWidth >= MIN_PLAUSIBLE_DIMENSION &&
+        videoEl.videoHeight >= MIN_PLAUSIBLE_DIMENSION
+      ) {
+        setNativeRatio(videoEl.videoWidth / videoEl.videoHeight);
       }
-    },
-    [trackRef],
-  );
+    };
+    videoEl.addEventListener('resize', handleResize);
+    return () => videoEl.removeEventListener('resize', handleResize);
+  }, [videoEl]);
 
   const fit = useMemo<FitBox | null>(() => {
     if (!containerSize) return null;
@@ -205,6 +224,7 @@ export default function ClampedVideoTrack({
         className="relative overflow-hidden shrink-0 flex items-center justify-center rounded-xl sm:rounded-2xl"
       >
         <VideoTrack
+          ref={setVideoEl}
           trackRef={trackRef}
           onLoadedMetadata={onVideoLoadedMetadata}
           className="w-full h-full object-cover"
