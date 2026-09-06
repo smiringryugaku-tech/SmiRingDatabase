@@ -21,14 +21,15 @@ const port = process.env.PORT || 3000;
 
 // ミドルウェアの設定
 app.use(cors()); // Reactからの通信を許可
+
+// LiveKitのWebhookは `Content-Type: application/webhook+json` という非標準の値で送られてくる
+// ため、下の express.json() では一切パースされない(type不一致でスキップされる)。署名検証には
+// 生のバイト列がそのまま必要なので、このパスだけ専用の express.raw() で受ける。
+// これより後で登録される express.json() は content-type が一致しないため何もしない。
+app.use('/api/connect/webhook', express.raw({ type: 'application/webhook+json', limit: '5mb' }));
+
 app.use(express.json({
   limit: '50mb',
-  // Keep the exact raw bytes around so the LiveKit webhook handler can verify
-  // its HMAC signature (the signature is computed over the raw body, not the
-  // re-serialized JSON, which is not guaranteed to be byte-identical).
-  verify: (req: Request, _res, buf) => {
-    req.rawBody = buf;
-  },
 }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 

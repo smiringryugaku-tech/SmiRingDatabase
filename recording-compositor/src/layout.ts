@@ -89,17 +89,21 @@ function gridCells(
 }
 
 /**
- * Cuts the recording wherever a screen share starts or stops, since that's the only thing
- * that changes the layout in v1: share on stage with faces beside it, or everyone in a grid.
+ * Cuts the recording wherever the set of visible tiles could change: a screen share
+ * starting or stopping, but just as much a camera starting or stopping — someone joining,
+ * leaving, or toggling their camera. Without cutting on the latter too, a grid segment
+ * spanning "2 people, then a 3rd joins 5 minutes in" would size every tile for 3 people
+ * (and leave the third slot black) for the whole segment, instead of resizing to 2 large
+ * tiles until the 3rd person actually shows up.
  */
 export function buildLayoutSegments(tracks: TrackSegment[], totalMs: number): LayoutSegment[] {
   const shares = tracks.filter((t) => t.source === 'screen_share');
   const cameras = tracks.filter((t) => t.source === 'camera');
 
   const cuts = new Set<number>([0, totalMs]);
-  for (const share of shares) {
-    if (share.offsetMs > 0 && share.offsetMs < totalMs) cuts.add(share.offsetMs);
-    const end = share.offsetMs + share.durationMs;
+  for (const track of [...shares, ...cameras]) {
+    if (track.offsetMs > 0 && track.offsetMs < totalMs) cuts.add(track.offsetMs);
+    const end = track.offsetMs + track.durationMs;
     if (end > 0 && end < totalMs) cuts.add(end);
   }
   const boundaries = [...cuts].sort((a, b) => a - b);
