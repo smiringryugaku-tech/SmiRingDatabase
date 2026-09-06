@@ -1,0 +1,31 @@
+# LiveKit Egress — records each participant's tracks individually (Track Egress) so the
+# call can be composited into a single video later, off this box (see recording-compositor/).
+#
+# Only Track Egress is ever requested here. That matters for sizing: Track Egress just
+# copies the incoming codec and uploads it, so it stays cheap enough to share this CX33
+# with the live SFU. Room Composite / Web egress would spawn a headless Chrome per room,
+# which this box cannot afford — never request those from the backend.
+#
+# Deliberately no `storage:` block: upload credentials are attached per-request by the
+# backend (see buildTrackEgressOutput in backend/src/routes/connectRoutes.ts). A global
+# default here is unreliable — livekit/egress#843 reports jobs silently falling back to
+# local disk instead of the configured default — and keeping R2 secrets out of this file
+# means the only secrets on this box stay the LiveKit ones already in .env.
+#
+# This file is a template (committed to git). Real values are filled in from .env by
+# ./render-config.sh, which writes egress.yaml (gitignored, the file the container reads).
+# Never edit egress.yaml directly; it gets overwritten on the next render-config.sh run.
+
+api_key: ${LIVEKIT_API_KEY}
+api_secret: ${LIVEKIT_API_SECRET}
+
+# Reached over the host network — egress runs with network_mode: host alongside
+# livekit-server, same as every other service in docker-compose.yml.
+ws_url: ws://127.0.0.1:7880
+
+# The same Redis livekit-server uses. Egress receives its job requests over Redis
+# pub/sub from livekit-server, so both must point at the same instance.
+redis:
+  address: 127.0.0.1:6379
+
+log_level: info

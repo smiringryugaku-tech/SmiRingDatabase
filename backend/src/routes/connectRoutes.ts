@@ -4,9 +4,19 @@ import { PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sd
 import multer from 'multer';
 import sharp from 'sharp';
 import { authenticate } from '../middleware/authenticate';
+import { requirePermission } from '../middleware/requirePermission';
 import { supabase } from '../lib/supabase';
-import { r2, BUCKET_NAME, resolveAvatarUrl } from '../lib/r2';
+import { r2, BUCKET_NAME, resolveAvatarUrl, getSignedFileUrl } from '../lib/r2';
 import { ensureJpegBuffer } from '../lib/imageInput';
+import {
+  finishRecording,
+  getActiveRecordingId,
+  getRecordingSession,
+  isRecordingConfigured,
+  setRecordingSession,
+  startRecordingForParticipants,
+  startTrackRecording,
+} from '../lib/recording';
 
 // smiring_member ロールID（ryugakusai-web / frontend/src/hooks/useIsInternal.ts と共通の定義）
 const SMIRING_MEMBER_ROLE_ID = 'c7f24039-c537-402e-91db-664684f5f8b3';
@@ -933,6 +943,176 @@ router.post(
   },
 );
 
+// ==========================================
+// ⏺️ 録画（SmiRing Connect）
+// ==========================================
+
+// POST /api/connect/rooms/:roomId/recording/start -> { recordingId }
+// Records every participant's tracks individually (Track Egress); the files are stitched
+// into one video later by the compositor Cloud Run Job — nothing composites on the
+// Hetzner box, which is busy serving the live call.
+router.post(
+  '/api/connect/rooms/:roomId/recording/start',
+  authenticate,
+  requirePermission('connect_recording', 'write'),
+  async (req: Request, res: Response) => {
+    const roomId = req.params.roomId;
+    if (!isValidRoomName(roomId)) {
+      return res.status(400).json({ error: 'ルーム名が不正です' });
+    }
+    if (!roomService || !isRecordingConfigured()) {
+      return res.status(503).json({ error: '録画機能が設定されていません' });
+    }
+
+    try {
+      if (await getRecordingSession(roomService, roomId)) {
+        return res.status(409).json({ error: 'このルームは既に録画中です' });
+      }
+
+      const participants = await roomService.listParticipants(roomId);
+      if (participants.length === 0) {
+        return res.status(400).json({ error: '参加者がいないため録画を開始できません' });
+      }
+
+      const { data: room } = await supabase
+        .from('connect_rooms')
+        .select('room_title')
+        .eq('room_id', roomId)
+        .maybeSingle();
+
+      const { data: recording, error: insertError } = await supabase
+        .from('connect_recordings')
+        .insert({
+          room_id: roomId,
+          room_title: room?.room_title ?? null,
+          status: 'recording',
+          started_by: req.user!.id,
+        })
+        .select('id')
+        .single();
+      if (insertError) throw insertError;
+
+      const trackCount = participants.reduce((total, p) => total + p.tracks.length, 0);
+      const startedCount = await startRecordingForParticipants(roomId, participants);
+      if (trackCount > 0 && startedCount === 0) {
+        await supabase.from('connect_recordings').update({ status: 'failed' }).eq('id', recording.id);
+        return res.status(502).json({ error: '録画を開始できませんでした' });
+      }
+      // A room where nobody has published yet is fine to start: the webhook picks tracks up
+      // as they appear, so the recording just begins with the first camera or mic switched on.
+
+      // Written last: while this pointer is absent, the webhook won't record newly
+      // published tracks, so setting it before the initial tracks are running would let a
+      // track get an egress from both paths at once.
+      await setRecordingSession(roomService, roomId, {
+        recordingId: recording.id,
+        startedBy: req.user!.id,
+        startedAt: Date.now(),
+      });
+
+      return res.json({ recordingId: recording.id, trackCount: startedCount });
+    } catch (error: any) {
+      console.error('[Connect] POST .../recording/start failed:', error);
+      return res.status(500).json({ error: error.message });
+    }
+  },
+);
+
+// POST /api/connect/rooms/:roomId/recording/stop
+// Returns as soon as the egresses are stopped — compositing runs asynchronously, and the
+// row's status is how the frontend follows it from there.
+router.post(
+  '/api/connect/rooms/:roomId/recording/stop',
+  authenticate,
+  requirePermission('connect_recording', 'write'),
+  async (req: Request, res: Response) => {
+    const roomId = req.params.roomId;
+    if (!isValidRoomName(roomId)) {
+      return res.status(400).json({ error: 'ルーム名が不正です' });
+    }
+    if (!roomService || !isRecordingConfigured()) {
+      return res.status(503).json({ error: '録画機能が設定されていません' });
+    }
+
+    try {
+      const recordingId = await getActiveRecordingId(roomId);
+      if (!recordingId) {
+        return res.status(404).json({ error: 'このルームは録画中ではありません' });
+      }
+
+      await finishRecording(roomService, roomId, recordingId);
+      return res.json({ recordingId, status: 'processing' });
+    } catch (error: any) {
+      console.error('[Connect] POST .../recording/stop failed:', error);
+      return res.status(500).json({ error: error.message });
+    }
+  },
+);
+
+// GET /api/connect/rooms/:roomId/recording -> { recording, startedAt }
+// Intentionally only `authenticate`: everyone in the call needs to see that they're being
+// recorded, including participants who can't start or stop it themselves.
+router.get('/api/connect/rooms/:roomId/recording', authenticate, async (req: Request, res: Response) => {
+  const roomId = req.params.roomId;
+  if (!isValidRoomName(roomId)) {
+    return res.status(400).json({ error: 'ルーム名が不正です' });
+  }
+  if (!roomService || !isRecordingConfigured()) {
+    return res.json({ recording: false });
+  }
+
+  try {
+    const session = await getRecordingSession(roomService, roomId);
+    return res.json(
+      session
+        ? { recording: true, recordingId: session.recordingId, startedAt: session.startedAt }
+        : { recording: false },
+    );
+  } catch (error: any) {
+    console.error('[Connect] GET .../recording failed:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/connect/rooms/:roomId/recordings -> finished recordings, newest first.
+router.get(
+  '/api/connect/rooms/:roomId/recordings',
+  authenticate,
+  requirePermission('connect_recording', 'read'),
+  async (req: Request, res: Response) => {
+    const roomId = req.params.roomId;
+    if (!isValidRoomName(roomId)) {
+      return res.status(400).json({ error: 'ルーム名が不正です' });
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('connect_recordings')
+        .select('id, status, r2_key, duration_seconds, created_at, completed_at')
+        .eq('room_id', roomId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+
+      // Signed per request rather than stored: the URLs expire in an hour, so a cached one
+      // would be dead by the time most people came back to it.
+      const recordings = await Promise.all(
+        (data ?? []).map(async (row) => ({
+          id: row.id,
+          status: row.status,
+          durationSeconds: row.duration_seconds,
+          createdAt: row.created_at,
+          completedAt: row.completed_at,
+          url: row.status === 'completed' ? await getSignedFileUrl(row.r2_key) : null,
+        })),
+      );
+      return res.json({ recordings });
+    } catch (error: any) {
+      console.error('[Connect] GET .../recordings failed:', error);
+      return res.status(500).json({ error: error.message });
+    }
+  },
+);
+
 // POST /api/connect/webhook - LiveKit webhook receiver.
 // No `authenticate` here: this is called by the LiveKit server itself, not a logged-in
 // user. Authenticity is verified via the signed `Authorize` header instead (see
@@ -948,6 +1128,21 @@ router.post('/api/connect/webhook', async (req: Request, res: Response) => {
     const rawBody = req.rawBody?.toString('utf8') ?? '';
     const event = await webhookReceiver.receive(rawBody, req.get('Authorize'));
 
+    // Someone published a track while a recording is running — a late joiner, or a camera
+    // or screen share switched on. Their track needs its own egress; the ones started when
+    // recording began only cover what was already published then.
+    if (event.event === 'track_published' && event.room?.name && event.participant && event.track && roomService) {
+      const roomId = event.room.name;
+      try {
+        const session = await getRecordingSession(roomService, roomId);
+        if (session) {
+          await startTrackRecording(roomId, event.participant.identity, event.track.source, event.track.sid);
+        }
+      } catch (e: any) {
+        console.error(`[Connect] Failed to record newly published track in ${roomId}:`, e?.message);
+      }
+    }
+
     const maybeDone =
       (event.event === 'room_finished' && event.room?.name) ||
       (event.event === 'participant_left' && event.room?.name && event.room.numParticipants === 0);
@@ -958,6 +1153,18 @@ router.post('/api/connect/webhook', async (req: Request, res: Response) => {
     // mini room finishing independently of the others). isMainRoomSessionEmpty checks
     // the whole family before anything gets deleted.
     if (maybeDone && event.room?.name && (await isMainRoomSessionEmpty(event.room.name))) {
+      // Before the room's state is torn down: if a recording is still running because the
+      // host left without stopping it, finish it here so the call still produces a video.
+      if (roomService) {
+        try {
+          const recordingId = await getActiveRecordingId(event.room.name);
+          if (recordingId) {
+            await finishRecording(roomService, event.room.name, recordingId);
+          }
+        } catch (e: any) {
+          console.error(`[Connect] Failed to finish recording for ${event.room.name}:`, e?.message);
+        }
+      }
       await cleanupStaleRoomData(event.room.name);
     }
 

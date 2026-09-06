@@ -1,0 +1,24 @@
+{
+  "name": "recording-compositor",
+  "version": "1.0.0",
+  "description": "Composites SmiRing Connect per-track recordings into a single video (Cloud Run Job)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1041.0",
+    "@supabase/supabase-js": "^2.101.1",
+    "dotenv": "^17.4.1",
+    "livekit-server-sdk": "^2.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}

@@ -15,6 +15,8 @@ import {
   Calendar,
 } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
+import { usePermission } from '../../hooks/usePermission';
+import RoomRecordings from '../../components/Connect/RoomRecordings';
 
 interface ConnectRoom {
   id: string;
@@ -38,6 +40,7 @@ export default function SmiRingConnectPage() {
   const navigate = useNavigate();
   const [joinCode, setJoinCode] = useState('');
   const [joinError, setJoinError] = useState('');
+  const canViewRecordings = usePermission('connect_recording', 'read');
 
   // Fixed rooms state
   const [rooms, setRooms] = useState<ConnectRoom[]>([]);
@@ -423,6 +426,8 @@ export default function SmiRingConnectPage() {
                     <p className="text-[10px] text-gray-400 font-medium">
                       作成日: {new Date(room.created_at).toLocaleDateString('ja-JP')}
                     </p>
+
+                    {canViewRecordings && <RoomRecordings roomId={room.room_id} />}
                   </div>
 
                   <button

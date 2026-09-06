@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { cleanupStaleTempRecordings } from '../lib/recording';
 
 const router = Router();
 
@@ -29,7 +30,11 @@ function getJstParts(date: Date): { hour: number; minute: number } {
 }
 
 async function runHourlyTasks() {
-  // TODO: 1時間ごとにやりたい処理をここに実装する
+  // 録画のTrack Egress一時ファイル（connect/recordings-tmp/）のうち、合成完了後の削除に失敗した
+  // ものを掃除する。詳細は backend/src/lib/recording.ts の cleanupStaleTempRecordings を参照。
+  await cleanupStaleTempRecordings().catch((e) =>
+    console.error('[Maintenance] cleanupStaleTempRecordings failed:', e),
+  );
 }
 
 async function runDailyTasks() {

@@ -24,6 +24,30 @@ services:
     depends_on:
       - redis
 
+  # Records each participant's tracks separately (Track Egress only — see egress.yaml.template
+  # for why Room Composite must never be requested against this box). Talks to livekit-server
+  # over the shared Redis below, and uploads straight to R2 using credentials the backend
+  # attaches to each request, so no storage secrets live here.
+  #
+  # No /var/run/docker.sock mount: that pattern exists for Chrome-based egress types needing
+  # per-job container isolation. Track Egress handlers run in-process, so mounting the Docker
+  # socket would hand this container root-equivalent access to the host for nothing.
+  egress:
+    image: livekit/egress:latest
+    network_mode: host
+    restart: unless-stopped
+    # Required by the egress binary itself (Chrome's sandbox is compiled in even when, as
+    # here, no Chrome-based egress type is ever requested).
+    cap_add:
+      - SYS_ADMIN
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+    depends_on:
+      - redis
+      - livekit
+
   redis:
     image: redis:7-alpine
     network_mode: host

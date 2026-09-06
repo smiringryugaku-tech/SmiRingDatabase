@@ -47,6 +47,7 @@ user_group_mappings    … ユーザー ↔ グループの紐付け
 | `management` | 管理コンソール（ロール・部署・留学段階の管理） |
 | `gallery` | 写真ギャラリー |
 | `forms` | フォーム作成・回答・閲覧 |
+| `connect_recording` | SmiRing Connect の録画（write=開始/停止、read=閲覧/ダウンロード）。セットアップ手順は `recording-compositor/README.md` |
 | （今後追加） | 機能追加時に resource 名を決めてDBにレコードを追加する |
 
 | action | 意味 | 包含関係 |

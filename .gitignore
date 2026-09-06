@@ -32,6 +32,7 @@ logs/
 
 /temp/*
 
-# Generated from hetzner-livekit/livekit.yaml.template by render-config.sh — contains
-# deploy-specific values, never commit it. Edit the .template instead.
+# Generated from the matching .template files by render-config.sh — contains
+# deploy-specific values, never commit them. Edit the .template instead.
 hetzner-livekit/livekit.yaml
+hetzner-livekit/egress.yaml

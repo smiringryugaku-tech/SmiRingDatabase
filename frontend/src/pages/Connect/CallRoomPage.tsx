@@ -61,6 +61,9 @@ import {
   DoorOpen,
   Ban,
   Droplets,
+  Circle,
+  CircleDot,
+  StopCircle,
   Image as ImageIcon,
 } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
@@ -68,6 +71,8 @@ import PreJoinScreen, { type PreJoinChoices } from '../../components/Connect/Pre
 import MiniRoomPanel from '../../components/Connect/MiniRoomPanel';
 import MiniRoomMoveToast from '../../components/Connect/MiniRoomMoveToast';
 import { useAuth } from '../../context/AuthContext';
+import { usePermission } from '../../hooks/usePermission';
+import { useRecording } from './useRecording';
 import { SMIRING_MEMBER_ROLE_ID } from '../../hooks/useIsInternal';
 import { useMiniRooms, type UseMiniRoomsResult, type ReconnectTarget } from '../../hooks/useMiniRooms';
 import { useDocumentPiP } from '../../hooks/useDocumentPiP';
@@ -952,6 +957,67 @@ function MiniRoomMenuItem({ onClick }: { onClick: () => void }) {
   );
 }
 
+/** Starts/stops recording the call. Only rendered for users with the recording permission. */
+function RecordingButton({
+  isRecording,
+  busy,
+  onClick,
+}: {
+  isRecording: boolean;
+  busy: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      title={isRecording ? '録画を停止' : '録画を開始'}
+      className={
+        isRecording
+          ? 'flex flex-col items-center justify-center gap-0.5 min-w-[4.25rem] sm:min-w-[4.75rem] h-[52px] px-3.5 py-1.5 rounded-xl border transition-all duration-200 active:scale-95 shrink-0 bg-rose-950/80 text-rose-200 border-rose-500/50 hover:bg-rose-900/80 shadow-lg shadow-rose-950/30'
+          : controlButtonClass(false)
+      }
+    >
+      {busy ? (
+        <Loader2 className="w-5 h-5 animate-spin" />
+      ) : isRecording ? (
+        <StopCircle className="w-5 h-5 text-rose-400 animate-pulse fill-rose-500/20" />
+      ) : (
+        <CircleDot className="w-5 h-5" />
+      )}
+      <ControlButtonLabel>{isRecording ? '録画停止' : '録画'}</ControlButtonLabel>
+    </button>
+  );
+}
+
+/** Same recording toggle, styled as a row inside `MoreMenu` for when the bar is too narrow. */
+function RecordingMenuItem({
+  isRecording,
+  busy,
+  onClick,
+}: {
+  isRecording: boolean;
+  busy: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-gray-200 hover:bg-gray-800 transition-colors disabled:opacity-50"
+    >
+      {busy ? (
+        <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+      ) : isRecording ? (
+        <StopCircle className="w-4 h-4 text-rose-400 animate-pulse" />
+      ) : (
+        <CircleDot className="w-4 h-4 text-indigo-400" />
+      )}
+      <span>{isRecording ? '録画を停止' : '録画を開始'}</span>
+    </button>
+  );
+}
+
 /**
  * One entry in the control bar's overflow system: rendered as a pill button in
  * the bar when there's room, or as a row inside `MoreMenu` when there isn't.
@@ -972,20 +1038,52 @@ interface OverflowBarItem {
 /** Estimated rendered width (pill + gap) of one `controlButtonClass` button, used to decide how many overflow items fit. */
 const OVERFLOW_ITEM_WIDTH_PX = 84;
 
+/** PiP open/close toggle for the control bar. */
+function PipButton({
+  isPipActive,
+  onClick,
+}: {
+  isPipActive: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={isPipActive ? 'PiPを閉じる' : 'PiPで開く'}
+      className={controlButtonClass(isPipActive)}
+    >
+      <PictureInPicture2 className="w-5 h-5" />
+      <ControlButtonLabel>PiP</ControlButtonLabel>
+    </button>
+  );
+}
+
+/** Same PiP toggle, styled as a row inside `MoreMenu` for when the bar is too narrow. */
+function PipMenuItem({
+  isPipActive,
+  onClick,
+}: {
+  isPipActive: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-gray-200 hover:bg-gray-800 transition-colors"
+    >
+      <PictureInPicture2 className="w-4 h-4 text-indigo-400" />
+      <span>{isPipActive ? 'PiP表示中' : 'PiPで開く'}</span>
+    </button>
+  );
+}
+
 /**
- * "その他のメニュー" next to the control bar. Always holds the PiP entry point
- * (when supported), plus whichever `overflowItems` didn't fit in the bar — see
+ * Dropdown menu for control-bar items that didn't fit on screen, driven by
  * the collapsing logic in `CustomVideoConference`.
  */
 function MoreMenu({
-  showPip,
-  onOpenPip,
-  isPipActive,
   collapsedItems,
 }: {
-  showPip: boolean;
-  onOpenPip: () => void;
-  isPipActive: boolean;
   collapsedItems: OverflowBarItem[];
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -1016,18 +1114,6 @@ function MoreMenu({
             {collapsedItems.map((item) => (
               <div key={item.key}>{item.renderMenuItem(close)}</div>
             ))}
-            {showPip && (
-              <button
-                onClick={() => {
-                  onOpenPip();
-                  close();
-                }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-gray-200 hover:bg-gray-800 transition-colors"
-              >
-                <PictureInPicture2 className="w-4 h-4 text-indigo-400" />
-                <span>{isPipActive ? 'PiP表示中' : 'PiPで開く'}</span>
-              </button>
-            )}
           </div>
         </DropdownPortal>
       )}
@@ -1160,6 +1246,11 @@ function CustomVideoConference({
   // MiniRoomPanel itself branches host vs. non-host content.
   const [showMiniRoomPanel, setShowMiniRoomPanel] = useState(false);
 
+  // Starting/stopping is permission-gated, but the recording *state* is read by everyone:
+  // participants who can't touch the controls still need to see that they're being recorded.
+  const canRecord = usePermission('connect_recording', 'write');
+  const recording = useRecording(mainRoomId);
+
   // Center control-bar items (Screen Share, Chat, and any future additions) fold into
   // the "..." menu once they don't fit. `centerWidth` is the actual box width flexbox
   // already assigned to the center `flex-1` slot — i.e. exactly the room available
@@ -1209,17 +1300,66 @@ function CustomVideoConference({
         />
       ),
     },
-    // Add future control-bar features here (screen recording, AI chat, participant
-    // list, ...) with a `priority` — lower numbers collapse into "..." first as the
-    // bar narrows. No other change needed; the fit/collapse logic below is generic.
+    // Add future control-bar features here (AI chat, participant list, ...) with a
+    // `priority` — lower numbers collapse into "..." first as the bar narrows. No other
+    // change needed; the fit/collapse logic below is generic.
   ];
 
-  // Reserve room for the "More" button itself so it doesn't pop in/out as items
-  // cross the fit threshold (that would shrink the available space and could flip
-  // the decision back and forth).
-  const availableForItems = centerWidth === null ? Infinity : centerWidth - OVERFLOW_ITEM_WIDTH_PX;
+  if (canRecord) {
+    overflowItems.push({
+      key: 'recording',
+      priority: 3,
+      renderBar: () => (
+        <RecordingButton
+          isRecording={recording.isRecording}
+          busy={recording.busy}
+          onClick={recording.isRecording ? recording.stop : recording.start}
+        />
+      ),
+      renderMenuItem: (close) => (
+        <RecordingMenuItem
+          isRecording={recording.isRecording}
+          busy={recording.busy}
+          onClick={() => {
+            if (recording.isRecording) recording.stop();
+            else recording.start();
+            close();
+          }}
+        />
+      ),
+    });
+  }
+
+  if (isPipSupported) {
+    overflowItems.push({
+      key: 'pip',
+      priority: 0.5,
+      renderBar: () => (
+        <PipButton
+          isPipActive={isPipActive}
+          onClick={isPipActive ? onClosePip : onOpenPip}
+        />
+      ),
+      renderMenuItem: (close) => (
+        <PipMenuItem
+          isPipActive={isPipActive}
+          onClick={() => {
+            if (isPipActive) onClosePip();
+            else onOpenPip();
+            close();
+          }}
+        />
+      ),
+    });
+  }
+
+  // Reserve room for the "More" button only when items actually overflow.
+  // If everything fits, we do not reserve the More button width so all buttons can be shown directly.
+  const totalCount = overflowItems.length;
+  const canFitAll = centerWidth !== null && centerWidth >= totalCount * OVERFLOW_ITEM_WIDTH_PX;
+  const availableForItems = centerWidth === null || canFitAll ? Infinity : centerWidth - OVERFLOW_ITEM_WIDTH_PX;
   const fitCount =
-    availableForItems === Infinity ? overflowItems.length : Math.max(0, Math.floor(availableForItems / OVERFLOW_ITEM_WIDTH_PX));
+    availableForItems === Infinity ? totalCount : Math.max(0, Math.floor(availableForItems / OVERFLOW_ITEM_WIDTH_PX));
   const visibleKeys = new Set(
     [...overflowItems]
       .sort((a, b) => b.priority - a.priority)
@@ -1245,6 +1385,25 @@ function CustomVideoConference({
 
   return (
     <div className="lk-video-conference relative flex flex-row h-full w-full overflow-hidden">
+      {/* Shown to everyone in the call, not just whoever started it — people have a right
+          to know they're on the record. */}
+      {recording.isRecording && (
+        <div className="absolute top-4 left-4 z-40 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-950/90 border border-rose-500/50 backdrop-blur-md rounded-xl shadow-2xl text-white">
+            <Circle className="w-3 h-3 text-rose-400 fill-current animate-pulse" />
+            <span className="text-xs font-semibold">録画中</span>
+          </div>
+        </div>
+      )}
+
+      {recording.error && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50">
+          <div className="px-4 py-2 bg-rose-950/90 border border-rose-500/50 backdrop-blur-md rounded-xl text-xs font-semibold text-white shadow-2xl">
+            {recording.error}
+          </div>
+        </div>
+      )}
+
       {/* Screen Share PiP Suggestion Banner (Only for local screen share) */}
       {isLocalScreenSharing && isPipSupported && !isPipActive && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -1313,11 +1472,8 @@ function CustomVideoConference({
                 {visibleItems.map((item) => (
                   <Fragment key={item.key}>{item.renderBar()}</Fragment>
                 ))}
-                {(isPipSupported || collapsedItems.length > 0) && (
+                {collapsedItems.length > 0 && (
                   <MoreMenu
-                    showPip={isPipSupported}
-                    onOpenPip={onOpenPip}
-                    isPipActive={isPipActive}
                     collapsedItems={collapsedItems}
                   />
                 )}
