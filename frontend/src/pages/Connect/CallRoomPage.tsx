@@ -73,6 +73,7 @@ import MiniRoomMoveToast from '../../components/Connect/MiniRoomMoveToast';
 import { useAuth } from '../../context/AuthContext';
 import { usePermission } from '../../hooks/usePermission';
 import { useRecording } from './useRecording';
+import { useRecordingSync } from './useRecordingSync';
 import { SMIRING_MEMBER_ROLE_ID } from '../../hooks/useIsInternal';
 import { useMiniRooms, type UseMiniRoomsResult, type ReconnectTarget } from '../../hooks/useMiniRooms';
 import { useDocumentPiP } from '../../hooks/useDocumentPiP';
@@ -754,14 +755,18 @@ function CameraButton({ mediaEnhancements }: { mediaEnhancements: MediaEnhanceme
   const { localParticipant, isCameraEnabled } = useLocalParticipant();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const syncRecording = useRecordingSync();
 
   const toggleCam = useCallback(async () => {
     try {
       await localParticipant.setCameraEnabled(!isCameraEnabled);
+      // Camera mute is invisible to the server — see useRecordingSync. No-op when the room
+      // isn't being recorded, so this doesn't need to know whether it is.
+      syncRecording();
     } catch (e) {
       console.error('Failed to toggle camera:', e);
     }
-  }, [localParticipant, isCameraEnabled]);
+  }, [localParticipant, isCameraEnabled, syncRecording]);
 
   return (
     <div

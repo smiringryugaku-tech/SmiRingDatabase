@@ -17,20 +17,32 @@ SmiRing Connect の録画を1本の動画に合成する Cloud Run Job。
   した瞬間)でもタイムラインを区切り**、区間ごとに描画してから連結する(そうしないと、後から
   参加した人がいる区間全体が「最終的な人数」に合わせたグリッドサイズになってしまい、その人が
   実際にいなかった時間帯まで小さいグリッドのままになる)
+- 音声は区間に関係なく全マイクをミックスする(画面に映っていない人の声も残る)
+- **カメラのOFFは egress を止め、ONで新しい egress を張り直す**(1トラックが録画中に複数ファイルを
+  持ち、R2キーとDBの `segment_index` で区別される)。これは LiveKit がカメラOFFを unpublish では
+  なく mute で扱うため — publication が生き続けるので
+    * ミュート中のトラックに egress を張ると、実際に映像が届くまでの空白がファイル内部の時刻に
+      残らず、後から来た映像が録画開始時刻に配置されてズレる
+    * 一度でもONにした後のOFF/ONは webhook が一切飛ばない
+      (`track_published` が飛ぶのは「そのセッションで初めてpublishした瞬間」だけ。
+      `track_muted`/`track_unmuted` というwebhookイベントはLiveKitに存在しない)
+  という2点があり、クライアントが `POST /api/connect/rooms/:roomId/recording/sync` を叩いて
+  backendに「LiveKitの状態を読み直せ」と促す方式にしている。**リクエストの中身は一切信用せず**、
+  状態は `listParticipants()` から、時刻はサーバー自身の時計から取る
 - 各トラックが「録画のどの時点から始まったか」は `connect_recording_tracks` テーブル
   (backend が egress 開始と同時に書き込む)から取得する。以前は LiveKit の `listEgress` API
   から事後に復元しようとしていたが、録画開始後に追加されたトラック(画面共有ON・後から参加
   した人)について開始時刻が取得できないことがあり、原因が特定できなかったため、egress を
   開始したその瞬間に自分たちのDBへ書く方式に変更した(`backend/src/lib/recording.ts`の
   `startTrackRecording`)。この Job は LiveKit の API を一切呼ばない。
-- 顔の選定は「その区間でカメラがONだった時間が長い順」。カメラOFFでもマイク等どれかのトラック
-  がその区間に重なっていれば(=その場にいれば)、本人のプロフィールアバター画像を1タイルとして
-  表示する(`basic_profile_info.avatar_id` → `gallery` から取得、`recording-compositor/src/avatars.ts`)。
-  アバター未設定の人は今まで通りタイルなし。カメラON勢が定員(10 / 20)を優先的に埋め、
-  余った枠だけアバター勢に回る
-- 「参加・退出」の区切りはカメラ・画面共有だけでなく全トラック(マイク含む)の開始・終了で
-  行う — カメラOFFの人のアバタータイルも、実際にいた時間だけ正しく出し入れするため
-- 音声は区間に関係なく全マイクをミックスする(画面に映っていない人の声も残る)
+- 顔の選定は「その区間でカメラがONだった時間が長い順」。カメラOFFでも**その時点でルームにいれば**
+  本人のプロフィールアバター画像を1タイルとして表示する
+  (`basic_profile_info.avatar_id` → `gallery` から取得、`recording-compositor/src/avatars.ts`)。
+  アバター未設定の人はタイルなし。カメラON勢が定員(10 / 20)を優先的に埋め、余った枠だけアバター勢に回る
+- 在室は `connect_recording_participants`(`participant_joined` / `participant_left` webhookで
+  backendが記録)から取る。トラックから推測しないのは、**マイクもカメラも切って入室した人は
+  publishされたトラックが1つも無い**ため — それだと録画上まったく存在しないことになってしまう
+- 区間の区切りは、画面共有・カメラの開始/終了に加えて**入室・退室**でも行う
 
 ## ストレージ
 

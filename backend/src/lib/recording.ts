@@ -112,12 +112,16 @@ function sanitizeKeyPart(value: string): string {
 }
 
 /**
- * Object key for one track's recording. Everything the compositor needs to reassemble the
- * call — who, which source, which publish — is encoded here rather than looked up later:
- * `EgressInfo.fileResults[].filename` comes back empty for track egress (livekit/egress#837),
- * so the key we hand LiveKit is the only reliable link between a file and its publisher.
- * The trackId makes it unique per publish, so a camera toggled off and on twice yields two
- * files rather than one overwriting the other.
+ * Object key for one *visible stretch* of one track. Everything the compositor needs to
+ * reassemble the call — who, which source, which publish, which stretch of it — is encoded
+ * here rather than looked up later: `EgressInfo.fileResults[].filename` comes back empty for
+ * track egress (livekit/egress#837), so the key we hand LiveKit is the only reliable link
+ * between a file and its publisher.
+ *
+ * `segmentIndex` is what makes a camera toggled off and on produce two files rather than one
+ * overwriting the other. The trackId alone can't: LiveKit mutes a camera instead of
+ * unpublishing it (only screen share unpublishes), so the same trackId lives for the whole
+ * call across any number of off/on cycles.
  *
  * Deliberately extension-less: the container depends on the codec the publisher negotiated
  * (opus -> .ogg, h264 -> .mp4, vp8 -> .webm) and LiveKit appends the right one. The
@@ -128,8 +132,9 @@ export function buildTempRecordingKey(
   identity: string,
   source: TrackSource,
   trackId: string,
+  segmentIndex: number,
 ): string {
-  return `${TEMP_RECORDING_PREFIX}${sanitizeKeyPart(roomId)}/${sanitizeKeyPart(identity)}__${sourceLabel(source)}__${sanitizeKeyPart(trackId)}`;
+  return `${TEMP_RECORDING_PREFIX}${sanitizeKeyPart(roomId)}/${sanitizeKeyPart(identity)}__${sourceLabel(source)}__${sanitizeKeyPart(trackId)}__${segmentIndex}`;
 }
 
 /**
@@ -182,9 +187,10 @@ export async function startTrackRecording(
   trackId: string,
 ): Promise<boolean> {
   if (!egressClient) return false;
+  const segmentIndex = await nextSegmentIndex(recordingId, trackId);
   const requestedAt = new Date();
   try {
-    const key = buildTempRecordingKey(roomId, identity, source, trackId);
+    const key = buildTempRecordingKey(roomId, identity, source, trackId, segmentIndex);
     await egressClient.startTrackEgress(roomId, buildTrackEgressOutput(key), trackId);
   } catch (error: any) {
     console.error(`[Recording] startTrackEgress failed (${roomId}/${identity}/${trackId}):`, error?.message);
@@ -194,6 +200,7 @@ export async function startTrackRecording(
   const { error: dbError } = await supabase.from('connect_recording_tracks').insert({
     recording_id: recordingId,
     track_id: trackId,
+    segment_index: segmentIndex,
     identity,
     source: sourceLabel(source),
     started_at: requestedAt.toISOString(),
@@ -206,20 +213,178 @@ export async function startTrackRecording(
   return true;
 }
 
-/** Starts recording every track currently published in the room. Returns how many started. */
+/** Next free segment number for this track, so a re-recorded camera gets its own file. */
+async function nextSegmentIndex(recordingId: string, trackId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('connect_recording_tracks')
+    .select('segment_index')
+    .eq('recording_id', recordingId)
+    .eq('track_id', trackId)
+    .order('segment_index', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error(`[Recording] Failed to read segment index for ${trackId}:`, error);
+    return 0;
+  }
+  return data ? data.segment_index + 1 : 0;
+}
+
+/**
+ * Stops the egress for one track and closes its open row.
+ *
+ * The egress id comes from LiveKit rather than our own bookkeeping, for the same reason
+ * `stopActiveEgresses` asks: it can't go stale, and it can't miss one we forgot to record.
+ */
+export async function stopTrackRecording(
+  roomId: string,
+  recordingId: string,
+  trackId: string,
+): Promise<void> {
+  if (egressClient) {
+    try {
+      const active = await egressClient.listEgress({ roomName: roomId, active: true });
+      const match = active.find((e) => e.request.case === 'track' && e.request.value.trackId === trackId);
+      if (match) await egressClient.stopEgress(match.egressId);
+    } catch (error: any) {
+      // Already finished on its own — the row still needs closing either way.
+      console.warn(`[Recording] Failed to stop egress for track ${trackId}:`, error?.message);
+    }
+  }
+
+  const { error } = await supabase
+    .from('connect_recording_tracks')
+    .update({ ended_at: new Date().toISOString() })
+    .eq('recording_id', recordingId)
+    .eq('track_id', trackId)
+    .is('ended_at', null);
+  if (error) console.error(`[Recording] Failed to close track row for ${trackId}:`, error);
+}
+
+/** True if a camera track is currently muted — the only source whose mute we act on. */
+function isMutedCamera(track: { source: TrackSource; muted: boolean }): boolean {
+  return track.source === TrackSource.CAMERA && track.muted;
+}
+
+/**
+ * Starts recording every track currently published in the room. Returns how many started.
+ *
+ * A muted camera is deliberately skipped. Its publication is still there (LiveKit mutes
+ * cameras rather than unpublishing them), but no frames are flowing, and an egress started
+ * on a silent track anchors its file's first frame to whenever the camera comes back —
+ * which we'd then have already timestamped as "the moment recording began", placing footage
+ * from minutes later at the very start of the video. `syncCameraRecordings` starts it for
+ * real when the camera comes back on.
+ *
+ * A muted *microphone* is not skipped: LiveKit leaves the mic track running and merely
+ * disables it (`stopMicTrackOnMute` is false by default), so silence keeps flowing and the
+ * file's timeline stays honest.
+ */
 export async function startRecordingForParticipants(
   roomId: string,
   recordingId: string,
   participants: ParticipantInfo[],
-): Promise<number> {
+): Promise<{ attempted: number; started: number }> {
+  const startable = participants.flatMap((participant) =>
+    participant.tracks.filter((track) => !isMutedCamera(track)).map((track) => ({ participant, track })),
+  );
   const results = await Promise.all(
-    participants.flatMap((participant) =>
-      participant.tracks.map((track) =>
-        startTrackRecording(roomId, recordingId, participant.identity, track.source, track.sid),
-      ),
+    startable.map(({ participant, track }) =>
+      startTrackRecording(roomId, recordingId, participant.identity, track.source, track.sid),
     ),
   );
-  return results.filter(Boolean).length;
+  return { attempted: startable.length, started: results.filter(Boolean).length };
+}
+
+/**
+ * Brings the running egresses in line with LiveKit's current camera mute state.
+ *
+ * This exists because muting a camera is invisible to webhooks: `track_published` fires only
+ * on the first real publish of a session, and there is no `track_muted`/`track_unmuted`
+ * webhook at all. Clients therefore poke `/recording/sync` after toggling their camera — but
+ * nothing they send is trusted. The state read here comes from LiveKit, and every timestamp
+ * is this server's own clock at the moment it starts the egress, exactly as on the
+ * `track_published` path.
+ *
+ * The open/closed rows in `connect_recording_tracks` *are* the "is this being recorded right
+ * now" state, so no separate bookkeeping can drift out of sync with them.
+ */
+export async function syncCameraRecordings(
+  roomId: string,
+  recordingId: string,
+  participants: ParticipantInfo[],
+): Promise<void> {
+  const { data: openRows, error } = await supabase
+    .from('connect_recording_tracks')
+    .select('track_id')
+    .eq('recording_id', recordingId)
+    .is('ended_at', null);
+  if (error) {
+    console.error(`[Recording] Failed to read open track rows for ${recordingId}:`, error);
+    return;
+  }
+  const recording = new Set((openRows ?? []).map((row) => row.track_id));
+
+  for (const participant of participants) {
+    for (const track of participant.tracks) {
+      if (track.source !== TrackSource.CAMERA) continue;
+      const isRecording = recording.has(track.sid);
+
+      if (track.muted && isRecording) {
+        console.log(`[Recording] Camera off for ${participant.identity} — closing segment`);
+        await stopTrackRecording(roomId, recordingId, track.sid);
+      } else if (!track.muted && !isRecording) {
+        console.log(`[Recording] Camera on for ${participant.identity} — starting segment`);
+        await startTrackRecording(roomId, recordingId, participant.identity, track.source, track.sid);
+      }
+    }
+  }
+}
+
+/** Records that these people were in the room from now on. Ignores anyone already open. */
+export async function openParticipantPresence(recordingId: string, identities: string[]): Promise<void> {
+  if (identities.length === 0) return;
+  const { error } = await supabase.from('connect_recording_participants').insert(
+    identities.map((identity) => ({ recording_id: recordingId, identity })),
+  );
+  if (error) console.error(`[Recording] Failed to open presence rows for ${recordingId}:`, error);
+}
+
+/**
+ * Closes every still-open track and presence interval for a finished recording.
+ *
+ * Purely hygiene for the backend's own state — the compositor measures each file's length
+ * from the file itself and clamps presence to the recording — but leaving rows open would
+ * make `syncCameraRecordings` believe egresses are still running if the same recording id
+ * were ever seen again.
+ */
+async function closeOpenIntervals(recordingId: string): Promise<void> {
+  const endedAt = new Date().toISOString();
+  const [tracks, participants] = await Promise.all([
+    supabase
+      .from('connect_recording_tracks')
+      .update({ ended_at: endedAt })
+      .eq('recording_id', recordingId)
+      .is('ended_at', null),
+    supabase
+      .from('connect_recording_participants')
+      .update({ left_at: endedAt })
+      .eq('recording_id', recordingId)
+      .is('left_at', null),
+  ]);
+  if (tracks.error) console.error('[Recording] Failed to close open track rows:', tracks.error);
+  if (participants.error) console.error('[Recording] Failed to close open presence rows:', participants.error);
+}
+
+/** Closes one person's open presence interval. */
+export async function closeParticipantPresence(recordingId: string, identity: string): Promise<void> {
+  const { error } = await supabase
+    .from('connect_recording_participants')
+    .update({ left_at: new Date().toISOString() })
+    .eq('recording_id', recordingId)
+    .eq('identity', identity)
+    .is('left_at', null);
+  if (error) console.error(`[Recording] Failed to close presence for ${identity}:`, error);
 }
 
 /**
@@ -334,6 +499,7 @@ export async function finishRecording(
   recordingId: string,
 ): Promise<void> {
   await stopActiveEgresses(roomId);
+  await closeOpenIntervals(recordingId);
 
   await setRecordingSession(roomService, roomId, null).catch((e) =>
     // Expected on the end-of-call path: the room is already gone, and the pointer with it.

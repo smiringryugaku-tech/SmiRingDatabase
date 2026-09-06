@@ -9,13 +9,16 @@ import { supabase } from '../lib/supabase';
 import { r2, BUCKET_NAME, resolveAvatarUrl, getSignedFileUrl } from '../lib/r2';
 import { ensureJpegBuffer } from '../lib/imageInput';
 import {
+  closeParticipantPresence,
   finishRecording,
   getActiveRecordingId,
   getRecordingSession,
   isRecordingConfigured,
+  openParticipantPresence,
   setRecordingSession,
   startRecordingForParticipants,
   startTrackRecording,
+  syncCameraRecordings,
 } from '../lib/recording';
 
 // smiring_member ロールID（ryugakusai-web / frontend/src/hooks/useIsInternal.ts と共通の定義）
@@ -992,14 +995,21 @@ router.post(
         .single();
       if (insertError) throw insertError;
 
-      const trackCount = participants.reduce((total, p) => total + p.tracks.length, 0);
-      const startedCount = await startRecordingForParticipants(roomId, recording.id, participants);
-      if (trackCount > 0 && startedCount === 0) {
+      // Everyone already here counts as present from the first frame — the webhook only
+      // reports people who arrive after this point.
+      await openParticipantPresence(
+        recording.id,
+        participants.map((p) => p.identity),
+      );
+
+      const { attempted, started } = await startRecordingForParticipants(roomId, recording.id, participants);
+      if (attempted > 0 && started === 0) {
         await supabase.from('connect_recordings').update({ status: 'failed' }).eq('id', recording.id);
         return res.status(502).json({ error: '録画を開始できませんでした' });
       }
-      // A room where nobody has published yet is fine to start: the webhook picks tracks up
-      // as they appear, so the recording just begins with the first camera or mic switched on.
+      // Nothing to start is fine — an empty room, or one where every camera happens to be off
+      // right now. Tracks are picked up as they appear (`track_published`) or as cameras come
+      // off mute (`/recording/sync`).
 
       // Written last: while this pointer is absent, the webhook won't record newly
       // published tracks, so setting it before the initial tracks are running would let a
@@ -1010,7 +1020,7 @@ router.post(
         startedAt: Date.now(),
       });
 
-      return res.json({ recordingId: recording.id, trackCount: startedCount });
+      return res.json({ recordingId: recording.id, trackCount: started });
     } catch (error: any) {
       console.error('[Connect] POST .../recording/start failed:', error);
       return res.status(500).json({ error: error.message });
@@ -1048,6 +1058,42 @@ router.post(
     }
   },
 );
+
+// POST /api/connect/rooms/:roomId/recording/sync
+//
+// A participant pokes this after toggling their camera, because LiveKit gives the server no
+// other way to find out: `track_published` fires only on the first publish of a session, and
+// there is no mute webhook. Nothing in the request is trusted — no body is read at all. The
+// caller only causes this server to go and re-read LiveKit's own state and act on it, so a
+// lost or spurious call costs a reconciliation, never a wrong timestamp.
+//
+// Deliberately `authenticate` only, without `connect_recording.write`: anyone in the call can
+// turn their camera on, including people who can't start or stop the recording.
+router.post('/api/connect/rooms/:roomId/recording/sync', authenticate, async (req: Request, res: Response) => {
+  const roomId = req.params.roomId;
+  if (!isValidRoomName(roomId)) {
+    return res.status(400).json({ error: 'ルーム名が不正です' });
+  }
+  if (!roomService || !isRecordingConfigured()) {
+    return res.json({ synced: false });
+  }
+
+  try {
+    const recordingId = await getActiveRecordingId(roomId);
+    if (!recordingId) return res.json({ synced: false });
+
+    const participants = await roomService.listParticipants(roomId);
+    if (!participants.some((p) => p.identity === req.user!.id)) {
+      return res.status(403).json({ error: 'このルームの参加者ではありません' });
+    }
+
+    await syncCameraRecordings(roomId, recordingId, participants);
+    return res.json({ synced: true });
+  } catch (error: any) {
+    console.error('[Connect] POST .../recording/sync failed:', error?.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 // GET /api/connect/rooms/:roomId/recording -> { recording, startedAt }
 // Intentionally only `authenticate`: everyone in the call needs to see that they're being
@@ -1252,6 +1298,30 @@ router.post('/api/connect/webhook', async (req: Request, res: Response) => {
         }
       } catch (e: any) {
         console.error(`[Connect] Failed to record newly published track in ${roomId}:`, e?.message);
+      }
+    }
+
+    // Presence is tracked independently of tracks: someone who joins with both camera and mic
+    // off publishes nothing at all, and without this they would be entirely absent from the
+    // recording rather than showing as an avatar tile for the time they were actually here.
+    if (
+      (event.event === 'participant_joined' || event.event === 'participant_left') &&
+      event.room?.name &&
+      event.participant
+    ) {
+      const roomId = event.room.name;
+      const identity = event.participant.identity;
+      try {
+        const recordingId = await getActiveRecordingId(roomId);
+        if (recordingId) {
+          if (event.event === 'participant_joined') {
+            await openParticipantPresence(recordingId, [identity]);
+          } else {
+            await closeParticipantPresence(recordingId, identity);
+          }
+        }
+      } catch (e: any) {
+        console.error(`[Connect] Failed to track presence for ${identity} in ${roomId}:`, e?.message);
       }
     }
 

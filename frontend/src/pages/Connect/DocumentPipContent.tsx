@@ -28,6 +28,7 @@ import type { useAdvancedChat } from '../../hooks/useAdvancedChat';
 import AdvancedChat from '../../components/Connect/AdvancedChat';
 import ClampedVideoTrack from '../../components/Connect/callLayout/ClampedVideoTrack';
 import { tileId } from '../../components/Connect/callLayout/tileIdentity';
+import { useRecordingSync } from './useRecordingSync';
 
 interface DocumentPipContentProps {
   roomTitle?: string;
@@ -169,6 +170,7 @@ export default function DocumentPipContent({
 }: DocumentPipContentProps) {
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
   const speakingParticipants = useSpeakingParticipants();
+  const syncRecording = useRecordingSync();
 
   const [currentTab, setCurrentTab] = useState<'video' | 'chat'>('video');
   const [showNotificationToast, setShowNotificationToast] = useState(false);
@@ -349,6 +351,8 @@ export default function DocumentPipContent({
     if (!localParticipant) return;
     try {
       await localParticipant.setCameraEnabled(!isCameraEnabled);
+      // Camera mute is invisible to the server — see useRecordingSync.
+      syncRecording();
     } catch (e) {
       console.error('[PiP] Failed to toggle camera:', e);
     }

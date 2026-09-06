@@ -10,7 +10,7 @@ import { concatSegments, extractThumbnail, mixAudio, muxFinal, renderSegments } 
 import { buildLayoutSegments } from './layout';
 import { BUCKET, deleteKeys, uploadFile } from './storage';
 import { supabase } from './supabase';
-import { collectTrackSegments, recordingDurationMs } from './tracks';
+import { collectPresenceIntervals, collectTrackSegments, recordingDurationMs } from './tracks';
 
 const ROOM_NAME = process.env.ROOM_NAME;
 const RECORDING_ID = process.env.RECORDING_ID;
@@ -28,7 +28,11 @@ async function main(): Promise<void> {
 
   const workDir = await mkdtemp(join(tmpdir(), 'compositor-'));
   try {
-    const { segments: tracks, keys } = await collectTrackSegments(ROOM_NAME, RECORDING_ID, workDir);
+    const { segments: tracks, keys, recordingStartMs } = await collectTrackSegments(
+      ROOM_NAME,
+      RECORDING_ID,
+      workDir,
+    );
     if (tracks.length === 0) {
       // Nothing usable was recorded — an empty room, or every egress failed to upload.
       await markFailed('no usable track files');
@@ -39,12 +43,16 @@ async function main(): Promise<void> {
     const totalMs = recordingDurationMs(tracks);
     console.log(`[Compositor] ${tracks.length} track files, ${(totalMs / 1000).toFixed(1)}s total`);
 
+    const presence = await collectPresenceIntervals(RECORDING_ID, recordingStartMs, totalMs);
+    console.log(`[Compositor] ${presence.length} presence interval(s)`);
+
     // Lets a camera-off participant still hold a tile (their avatar photo) instead of
     // vanishing from the recording entirely — see `layout.ts`'s `pickParticipants`.
-    const identities = [...new Set(tracks.map((t) => t.identity))];
+    const identities = [...new Set([...tracks.map((t) => t.identity), ...presence.map((p) => p.identity)])];
     const avatarPaths = await fetchAvatarPaths(identities, workDir);
+    console.log(`[Compositor] Resolved ${avatarPaths.size}/${identities.length} avatar(s)`);
 
-    const layoutSegments = buildLayoutSegments(tracks, totalMs, new Set(avatarPaths.keys()));
+    const layoutSegments = buildLayoutSegments(tracks, presence, totalMs, new Set(avatarPaths.keys()));
     const videoPath = await concatSegments(await renderSegments(layoutSegments, avatarPaths, workDir), workDir);
     const audioPath = await mixAudio(tracks, workDir);
     const finalPath = await muxFinal(videoPath, audioPath, workDir);

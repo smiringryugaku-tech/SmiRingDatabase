@@ -1,4 +1,4 @@
-import type { TrackSegment } from './tracks';
+import type { PresenceInterval, TrackSegment } from './tracks';
 
 // 720p rather than 1080p: measured ~20% faster to encode (the dominant cost in the whole
 // pipeline — see recording-compositor/README.md's benchmark) for no real loss, since
@@ -47,64 +47,82 @@ export interface LayoutSegment {
 
 const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
 
-const overlapMs = (track: TrackSegment, startMs: number, endMs: number) =>
-  Math.max(0, Math.min(track.offsetMs + track.durationMs, endMs) - Math.max(track.offsetMs, startMs));
+const overlapMs = (span: { offsetMs: number; durationMs: number }, startMs: number, endMs: number) =>
+  Math.max(0, Math.min(span.offsetMs + span.durationMs, endMs) - Math.max(span.offsetMs, startMs));
 
 interface ParticipantCandidate {
   identity: string;
   /** Their best (longest-overlapping) camera track for this stretch, if they have one. */
   camera?: TrackSegment;
   cameraOverlapMs: number;
-  /** Longest overlap from *any* of their tracks (mic, screen share, ...) — used to rank
-   *  icon candidates, and to decide they were present at all when they have no camera. */
+  /** How much of this stretch they were in the room for — ranks the icon tiles. */
   presenceOverlapMs: number;
   firstOffsetMs: number;
 }
 
 function collectParticipants(
   tracks: TrackSegment[],
+  presence: PresenceInterval[],
   startMs: number,
   endMs: number,
-): Map<string, ParticipantCandidate> {
+): ParticipantCandidate[] {
   const byIdentity = new Map<string, ParticipantCandidate>();
-  for (const track of tracks) {
-    const overlap = overlapMs(track, startMs, endMs);
-    if (overlap === 0) continue;
 
-    const entry = byIdentity.get(track.identity) ?? {
-      identity: track.identity,
+  const entryFor = (identity: string, offsetMs: number) => {
+    const existing = byIdentity.get(identity);
+    if (existing) {
+      existing.firstOffsetMs = Math.min(existing.firstOffsetMs, offsetMs);
+      return existing;
+    }
+    const created: ParticipantCandidate = {
+      identity,
       cameraOverlapMs: 0,
       presenceOverlapMs: 0,
-      firstOffsetMs: track.offsetMs,
+      firstOffsetMs: offsetMs,
     };
+    byIdentity.set(identity, created);
+    return created;
+  };
+
+  for (const interval of presence) {
+    const overlap = overlapMs(interval, startMs, endMs);
+    if (overlap === 0) continue;
+    const entry = entryFor(interval.identity, interval.offsetMs);
     entry.presenceOverlapMs = Math.max(entry.presenceOverlapMs, overlap);
-    entry.firstOffsetMs = Math.min(entry.firstOffsetMs, track.offsetMs);
-    if (track.source === 'camera' && overlap > entry.cameraOverlapMs) {
+  }
+
+  for (const track of tracks) {
+    if (track.source !== 'camera') continue;
+    const overlap = overlapMs(track, startMs, endMs);
+    if (overlap === 0) continue;
+    const entry = entryFor(track.identity, track.offsetMs);
+    if (overlap > entry.cameraOverlapMs) {
       entry.cameraOverlapMs = overlap;
       entry.camera = track;
     }
-    byIdentity.set(track.identity, entry);
   }
-  return byIdentity;
+
+  return [...byIdentity.values()];
 }
 
 /**
- * One tile per person: a camera toggled off and on leaves two files for the same identity,
- * and whichever covered more of this stretch is the one worth showing. Video always wins a
- * slot over an icon; past that, whoever's had the tile longest wins, and ties fall back to
- * join order so the grid stays in a stable, predictable arrangement.
+ * One tile per person: a camera switched off and on leaves several files for the same
+ * identity, and whichever covered more of this stretch is the one worth showing. Video
+ * always wins a slot over an icon; past that, whoever's had the tile longest wins, and ties
+ * fall back to join order so the grid stays in a stable, predictable arrangement.
  *
  * `iconEligible` gates who can occupy an icon slot at all — an identity with no resolvable
  * avatar is left out entirely rather than reserving a tile with nothing to draw in it.
  */
 function pickParticipants(
   tracks: TrackSegment[],
+  presence: PresenceInterval[],
   startMs: number,
   endMs: number,
   limit: number,
   iconEligible: Set<string>,
 ): ParticipantCandidate[] {
-  const all = [...collectParticipants(tracks, startMs, endMs).values()];
+  const all = collectParticipants(tracks, presence, startMs, endMs);
   const withCamera = all.filter((p) => p.camera);
   const withoutCamera = all.filter((p) => !p.camera && iconEligible.has(p.identity));
 
@@ -149,25 +167,25 @@ function gridCells(count: number, box: TileBox, columns?: number): TileBox[] {
 }
 
 /**
- * Cuts the recording wherever the set of visible tiles could change: a screen share
- * starting or stopping, a camera starting or stopping, or — now that a camera-off person
- * can hold an icon tile — a mic (or any other track) starting or stopping, since that's
- * what makes them present at all. Without cutting on every track's boundary, a segment
- * spanning "2 people, then a 3rd joins 5 minutes in" would size every tile for 3 people
- * (and leave the third slot black, or wrongly show its icon early) for the whole segment,
- * instead of resizing right when the 3rd person actually shows up.
+ * Cuts the recording wherever the set of visible tiles could change: a screen share or a
+ * camera starting or stopping, and someone entering or leaving the room, since that alone
+ * decides whether they hold an avatar tile. Without cutting on every one of those, a segment
+ * spanning "2 people, then a 3rd joins 5 minutes in" would size every tile for 3 people (and
+ * leave the third slot black, or wrongly show its icon early) for the whole segment, instead
+ * of resizing right when the 3rd person actually shows up.
  */
 export function buildLayoutSegments(
   tracks: TrackSegment[],
+  presence: PresenceInterval[],
   totalMs: number,
   iconEligible: Set<string>,
 ): LayoutSegment[] {
   const shares = tracks.filter((t) => t.source === 'screen_share');
 
   const cuts = new Set<number>([0, totalMs]);
-  for (const track of tracks) {
-    if (track.offsetMs > 0 && track.offsetMs < totalMs) cuts.add(track.offsetMs);
-    const end = track.offsetMs + track.durationMs;
+  for (const span of [...tracks, ...presence]) {
+    if (span.offsetMs > 0 && span.offsetMs < totalMs) cuts.add(span.offsetMs);
+    const end = span.offsetMs + span.durationMs;
     if (end > 0 && end < totalMs) cuts.add(end);
   }
   const boundaries = [...cuts].sort((a, b) => a - b);
@@ -184,7 +202,7 @@ export function buildLayoutSegments(
       .sort((a, b) => a.offsetMs - b.offsetMs)[0];
 
     if (share) {
-      const participants = pickParticipants(tracks, startMs, endMs, MAX_FACES_WITH_SHARE, iconEligible);
+      const participants = pickParticipants(tracks, presence, startMs, endMs, MAX_FACES_WITH_SHARE, iconEligible);
       const faceCells = gridCells(
         participants.length,
         { x: STAGE_WIDTH, y: 0, width: FACE_COLUMN_WIDTH, height: CANVAS_HEIGHT },
@@ -199,7 +217,7 @@ export function buildLayoutSegments(
         ],
       });
     } else {
-      const participants = pickParticipants(tracks, startMs, endMs, MAX_FACES_IN_GRID, iconEligible);
+      const participants = pickParticipants(tracks, presence, startMs, endMs, MAX_FACES_IN_GRID, iconEligible);
       const cells = gridCells(participants.length, { x: 0, y: 0, width: CANVAS_WIDTH, height: CANVAS_HEIGHT });
       segments.push({ startMs, endMs, tiles: participants.map((p, i) => toTile(p, cells[i])) });
     }
