@@ -1,0 +1,92 @@
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Loader2 } from 'lucide-react';
+import { apiClient } from '../../lib/apiClient';
+
+interface Recording {
+  id: string;
+  roomId: string;
+  roomTitle: string | null;
+  status: string;
+  durationSeconds: number | null;
+  createdAt: string;
+  url: string | null;
+}
+
+export default function RecordingPlayerPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [recording, setRecording] = useState<Recording | null>(null);
+  const [error, setError] = useState('');
+
+  // 画面遷移時にスクロール位置を最上部にリセット
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    document.querySelector('main')?.scrollTo(0, 0);
+  }, []);
+
+  useEffect(() => {
+    if (!id) return;
+    apiClient
+      .get(`/api/connect/recordings/${id}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error ?? '録画の取得に失敗しました');
+        }
+        setRecording(await response.json());
+      })
+      .catch((e: any) => setError(e.message ?? '録画の取得に失敗しました'));
+  }, [id]);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4 py-8 md:px-8">
+      <div className="max-w-5xl mx-auto space-y-6">
+        <div className="flex items-center justify-between gap-4">
+          <button
+            onClick={() => navigate('/connect/recordings')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-bold text-sm rounded-xl shadow-sm hover:shadow transition-all duration-200 active:scale-95"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>録画一覧に戻る</span>
+          </button>
+        </div>
+
+        {error && (
+          <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm font-semibold text-red-700 shadow-sm">
+            {error}
+          </div>
+        )}
+
+        {!recording && !error && (
+          <div className="flex justify-center py-32">
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          </div>
+        )}
+
+        {recording && recording.url && (
+          <div className="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-gray-100 space-y-4">
+            <div className="rounded-2xl overflow-hidden shadow-lg bg-black aspect-video">
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <video src={recording.url} controls autoPlay className="w-full h-full object-contain" />
+            </div>
+            <div className="pt-2">
+              <h1 className="text-xl md:text-2xl font-black text-gray-900 tracking-tight">
+                {recording.roomTitle || recording.roomId}
+              </h1>
+              <p className="text-sm text-gray-500 font-semibold mt-1">
+                {new Date(recording.createdAt).toLocaleString('ja-JP')}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {recording && !recording.url && (
+          <div className="px-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-semibold text-gray-600">
+            この録画はまだ再生できません（ステータス: {recording.status}）。
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

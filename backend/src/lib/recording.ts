@@ -98,9 +98,17 @@ export function sourceLabel(source: TrackSource): string {
   }
 }
 
-/** `__` separates the fields the compositor parses back out, so it can't appear inside one. */
+/**
+ * `__` separates the fields the compositor parses back out, so a single `_` must survive
+ * untouched (LiveKit track ids are `TR_xxxx` / `AM_xxxx`) or the key's trackId stops
+ * matching the unsanitized one stored in `connect_recording_tracks`, and every track looks
+ * like it has no known start time. Only characters that could interfere with parsing (a
+ * literal `/` breaking the path, or a second `_` risking a false `__` delimiter) get
+ * replaced; everything else in a LiveKit id or a Supabase-generated identity is already
+ * safe as-is.
+ */
 function sanitizeKeyPart(value: string): string {
-  return value.replace(/[^A-Za-z0-9-]/g, '-');
+  return value.replace(/[^A-Za-z0-9_-]/g, '-');
 }
 
 /**

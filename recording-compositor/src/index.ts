@@ -5,7 +5,7 @@ dotenv.config();
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { concatSegments, mixAudio, muxFinal, renderSegments } from './ffmpeg';
+import { concatSegments, extractThumbnail, mixAudio, muxFinal, renderSegments } from './ffmpeg';
 import { buildLayoutSegments } from './layout';
 import { BUCKET, deleteKeys, uploadFile } from './storage';
 import { supabase } from './supabase';
@@ -46,11 +46,24 @@ async function main(): Promise<void> {
     const key = `connect/recordings/${ROOM_NAME}/${RECORDING_ID}.mp4`;
     await uploadFile(BUCKET, key, finalPath, 'video/mp4');
 
+    // Best-effort: a missing thumbnail just falls back to a placeholder in the recordings
+    // list, not worth failing an otherwise-successful recording over.
+    let thumbnailKey: string | null = null;
+    try {
+      const thumbnailPath = join(workDir, 'thumbnail.jpg');
+      await extractThumbnail(finalPath, totalMs, thumbnailPath);
+      thumbnailKey = `connect/recordings/${ROOM_NAME}/${RECORDING_ID}.jpg`;
+      await uploadFile(BUCKET, thumbnailKey, thumbnailPath, 'image/jpeg');
+    } catch (e: any) {
+      console.warn('[Compositor] Thumbnail extraction failed, continuing without one:', e?.message);
+    }
+
     const { error } = await supabase
       .from('connect_recordings')
       .update({
         status: 'completed',
         r2_key: key,
+        thumbnail_key: thumbnailKey,
         duration_seconds: Math.round(totalMs / 1000),
         completed_at: new Date().toISOString(),
       })

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useInactivityLogout } from '../../hooks/useInactivityLogout';
@@ -18,8 +18,17 @@ export default function MainLayout() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
   const isInConnectRoom = location.pathname.startsWith('/connect/room/') || location.pathname.startsWith('/connect/call/');
   useInactivityLogout(!isInConnectRoom);
+
+  // ページ遷移時にスクロール位置を最上部にリセット
+  useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTo(0, 0);
+    }
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     try {
@@ -40,7 +49,7 @@ export default function MainLayout() {
       <AppHeader onMenuClick={() => setIsDrawerOpen(true)} />
 
       {/* --- 2. ボディ --- */}
-      <main className="flex-1 overflow-y-auto relative bg-white/50">
+      <main ref={mainRef} className="flex-1 overflow-y-auto relative bg-white/50">
         <Outlet />
       </main>
 

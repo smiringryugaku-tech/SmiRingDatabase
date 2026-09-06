@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Video,
-  ArrowLeft,
+  Film,
   Plus,
   LogIn,
   Pin,
@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
 import { usePermission } from '../../hooks/usePermission';
-import RoomRecordings from '../../components/Connect/RoomRecordings';
 
 interface ConnectRoom {
   id: string;
@@ -176,13 +175,15 @@ export default function SmiRingConnectPage() {
             </p>
           </div>
 
-          <button
-            onClick={() => navigate('/apps')}
-            className="self-start flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-600 font-bold text-sm rounded-xl shadow-sm hover:shadow transition-all duration-200 active:scale-95"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>アプリ一覧へ戻る</span>
-          </button>
+          {canViewRecordings && (
+            <button
+              onClick={() => navigate('/connect/recordings')}
+              className="self-start flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-600 font-bold text-sm rounded-xl shadow-sm hover:shadow transition-all duration-200 active:scale-95"
+            >
+              <Film className="w-4 h-4" />
+              <span>録画一覧</span>
+            </button>
+          )}
         </div>
 
         {/* Action Cards Grid */}
@@ -426,8 +427,6 @@ export default function SmiRingConnectPage() {
                     <p className="text-[10px] text-gray-400 font-medium">
                       作成日: {new Date(room.created_at).toLocaleDateString('ja-JP')}
                     </p>
-
-                    {canViewRecordings && <RoomRecordings roomId={room.room_id} />}
                   </div>
 
                   <button

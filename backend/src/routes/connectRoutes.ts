@@ -1074,40 +1074,82 @@ router.get('/api/connect/rooms/:roomId/recording', authenticate, async (req: Req
   }
 });
 
-// GET /api/connect/rooms/:roomId/recordings -> finished recordings, newest first.
+// Shared row shape for both list and single-recording endpoints below.
+async function serializeRecording(row: {
+  id: string;
+  room_id: string;
+  room_title: string | null;
+  status: string;
+  r2_key: string | null;
+  thumbnail_key: string | null;
+  duration_seconds: number | null;
+  created_at: string;
+  completed_at: string | null;
+}) {
+  // Signed per request rather than stored: the URLs expire in an hour, so a cached one
+  // would be dead by the time most people came back to it.
+  const isCompleted = row.status === 'completed';
+  const [url, thumbnailUrl] = await Promise.all([
+    isCompleted ? getSignedFileUrl(row.r2_key) : null,
+    isCompleted ? getSignedFileUrl(row.thumbnail_key) : null,
+  ]);
+  return {
+    id: row.id,
+    roomId: row.room_id,
+    roomTitle: row.room_title,
+    status: row.status,
+    durationSeconds: row.duration_seconds,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
+    url,
+    thumbnailUrl,
+  };
+}
+
+const RECORDING_COLUMNS = 'id, room_id, room_title, status, r2_key, thumbnail_key, duration_seconds, created_at, completed_at';
+
+// GET /api/connect/recordings -> every recording across every room, newest first.
+// (Recordings live in one app-wide list now, not one per room — see RecordingsListPage.)
 router.get(
-  '/api/connect/rooms/:roomId/recordings',
+  '/api/connect/recordings',
   authenticate,
   requirePermission('connect_recording', 'read'),
-  async (req: Request, res: Response) => {
-    const roomId = req.params.roomId;
-    if (!isValidRoomName(roomId)) {
-      return res.status(400).json({ error: 'ルーム名が不正です' });
-    }
-
+  async (_req: Request, res: Response) => {
     try {
       const { data, error } = await supabase
         .from('connect_recordings')
-        .select('id, status, r2_key, duration_seconds, created_at, completed_at')
-        .eq('room_id', roomId)
-        .order('created_at', { ascending: false });
+        .select(RECORDING_COLUMNS)
+        .order('created_at', { ascending: false })
+        .limit(100);
       if (error) throw error;
 
-      // Signed per request rather than stored: the URLs expire in an hour, so a cached one
-      // would be dead by the time most people came back to it.
-      const recordings = await Promise.all(
-        (data ?? []).map(async (row) => ({
-          id: row.id,
-          status: row.status,
-          durationSeconds: row.duration_seconds,
-          createdAt: row.created_at,
-          completedAt: row.completed_at,
-          url: row.status === 'completed' ? await getSignedFileUrl(row.r2_key) : null,
-        })),
-      );
+      const recordings = await Promise.all((data ?? []).map(serializeRecording));
       return res.json({ recordings });
     } catch (error: any) {
-      console.error('[Connect] GET .../recordings failed:', error);
+      console.error('[Connect] GET /recordings failed:', error);
+      return res.status(500).json({ error: error.message });
+    }
+  },
+);
+
+// GET /api/connect/recordings/:id -> one recording, for the player page.
+router.get(
+  '/api/connect/recordings/:id',
+  authenticate,
+  requirePermission('connect_recording', 'read'),
+  async (req: Request, res: Response) => {
+    try {
+      const { data, error } = await supabase
+        .from('connect_recordings')
+        .select(RECORDING_COLUMNS)
+        .eq('id', req.params.id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return res.status(404).json({ error: '録画が見つかりません' });
+
+      return res.json(await serializeRecording(data));
+    } catch (error: any) {
+      console.error('[Connect] GET /recordings/:id failed:', error);
       return res.status(500).json({ error: error.message });
     }
   },

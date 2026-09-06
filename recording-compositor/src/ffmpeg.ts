@@ -19,6 +19,20 @@ async function run(bin: string, args: string[]): Promise<string> {
   return stdout;
 }
 
+/** Grabs one frame from the middle of the finished video as a JPEG thumbnail. */
+export async function extractThumbnail(videoPath: string, durationMs: number, outputPath: string): Promise<void> {
+  const midpointSec = durationMs / 2 / 1000;
+  await run('ffmpeg', [
+    '-y',
+    '-ss', midpointSec.toFixed(3),
+    '-i', videoPath,
+    '-frames:v', '1',
+    '-vf', 'scale=640:-1',
+    '-q:v', '4',
+    outputPath,
+  ]);
+}
+
 export async function probeDurationMs(path: string): Promise<number> {
   try {
     const stdout = await run('ffprobe', [
