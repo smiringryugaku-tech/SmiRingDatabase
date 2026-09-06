@@ -11,6 +11,9 @@ const FPS = 30;
 // Every segment is encoded identically so they can be concatenated without re-encoding.
 const VIDEO_ARGS = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-r', String(FPS)];
 
+// Matches the live call UI's camera-off placeholder background (`--lk-bg2`).
+const ICON_TILE_BG = '#1a1a1a';
+
 // Long calls take a long time to mux; the Cloud Run Job's own task timeout is the real limit.
 const MAX_BUFFER = 32 * 1024 * 1024;
 
@@ -51,11 +54,14 @@ export async function probeDurationMs(path: string): Promise<number> {
 /**
  * Renders one fixed-layout stretch of the call to its own file.
  *
- * Tiles are padded with black up to the point they join rather than being switched on with
- * an overlay `enable`, so every tile is one continuous stream for the whole segment: black
- * on a black canvas is invisible, and it keeps the graph free of timing conditions.
+ * Video tiles are padded with black up to the point they join rather than being switched on
+ * with an overlay `enable`, so every tile is one continuous stream for the whole segment:
+ * black on a black canvas is invisible, and it keeps the graph free of timing conditions. An
+ * icon tile has no clip to seek into — by construction (see `buildLayoutSegments`'s comment
+ * on cutting on every track's boundary) whoever holds one is present for the segment's whole
+ * span, so its avatar photo simply loops for the full duration from the start.
  */
-async function renderSegment(segment: LayoutSegment, outputPath: string): Promise<void> {
+async function renderSegment(segment: LayoutSegment, avatarPaths: Map<string, string>, outputPath: string): Promise<void> {
   const durationSec = (segment.endMs - segment.startMs) / 1000;
   const args = ['-y', '-f', 'lavfi', '-i', `color=c=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}:r=${FPS}`];
 
@@ -63,21 +69,45 @@ async function renderSegment(segment: LayoutSegment, outputPath: string): Promis
   let previous = '[0:v]';
 
   segment.tiles.forEach((tile, index) => {
-    const { track, x, y, width, height } = tile;
-    const clipStartMs = Math.max(segment.startMs, track.offsetMs);
-    const clipEndMs = Math.min(segment.endMs, track.offsetMs + track.durationMs);
-    const seekSec = (clipStartMs - track.offsetMs) / 1000;
-    const clipSec = (clipEndMs - clipStartMs) / 1000;
-    const padStartSec = (clipStartMs - segment.startMs) / 1000;
-
-    args.push('-ss', seekSec.toFixed(3), '-t', clipSec.toFixed(3), '-i', track.path);
-
+    const { x, y, width, height } = tile;
     const input = index + 1;
-    filters.push(
-      `[${input}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${FPS},` +
-        `tpad=start_duration=${padStartSec.toFixed(3)}:start_mode=add:color=black[t${input}]`,
-    );
+
+    if (tile.kind === 'video') {
+      const { track } = tile;
+      const clipStartMs = Math.max(segment.startMs, track.offsetMs);
+      const clipEndMs = Math.min(segment.endMs, track.offsetMs + track.durationMs);
+      const seekSec = (clipStartMs - track.offsetMs) / 1000;
+      const clipSec = (clipEndMs - clipStartMs) / 1000;
+      const padStartSec = (clipStartMs - segment.startMs) / 1000;
+
+      args.push('-ss', seekSec.toFixed(3), '-t', clipSec.toFixed(3), '-i', track.path);
+      filters.push(
+        `[${input}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${FPS},` +
+          `tpad=start_duration=${padStartSec.toFixed(3)}:start_mode=add:color=black[t${input}]`,
+      );
+    } else {
+      const avatarPath = avatarPaths.get(tile.identity);
+      // Should always be present — `pickParticipants` only grants an icon slot to
+      // identities `fetchAvatarPaths` actually resolved — but a flat background beats
+      // crashing the whole recording if a file went missing between the two.
+      if (avatarPath) {
+        // `-loop 1` on a still image needs `-t` on the *input* (not just the output) or
+        // ffmpeg treats it as an infinite source and the filter graph never terminates.
+        args.push('-loop', '1', '-t', durationSec.toFixed(3), '-i', avatarPath);
+        const avatarSize = Math.round(Math.min(width, height) * 0.55);
+        filters.push(
+          `[${input}:v]scale=${avatarSize}:${avatarSize}:force_original_aspect_ratio=increase,` +
+            `crop=${avatarSize}:${avatarSize},setsar=1,fps=${FPS}[a${input}];` +
+            `color=c=${ICON_TILE_BG}:s=${width}x${height}:r=${FPS}:d=${durationSec.toFixed(3)}[bg${input}];` +
+            `[bg${input}][a${input}]overlay=(${width}-${avatarSize})/2:(${height}-${avatarSize})/2[t${input}]`,
+        );
+      } else {
+        args.push('-f', 'lavfi', '-i', `color=c=${ICON_TILE_BG}:s=${width}x${height}:r=${FPS}:d=${durationSec.toFixed(3)}`);
+        filters.push(`[${input}:v]setsar=1,fps=${FPS}[t${input}]`);
+      }
+    }
+
     const output = `[o${input}]`;
     filters.push(`${previous}[t${input}]overlay=${x}:${y}:eof_action=pass${output}`);
     previous = output;
@@ -91,7 +121,11 @@ async function renderSegment(segment: LayoutSegment, outputPath: string): Promis
   await run('ffmpeg', args);
 }
 
-export async function renderSegments(segments: LayoutSegment[], workDir: string): Promise<string[]> {
+export async function renderSegments(
+  segments: LayoutSegment[],
+  avatarPaths: Map<string, string>,
+  workDir: string,
+): Promise<string[]> {
   const paths: string[] = [];
   // Rendered one at a time: each ffmpeg run already uses every core it can, and a long call
   // holds far too many decoders open to run several of these side by side.
@@ -101,7 +135,7 @@ export async function renderSegments(segments: LayoutSegment[], workDir: string)
       `[Compositor] Rendering segment ${index + 1}/${segments.length} ` +
         `(${(segment.startMs / 1000).toFixed(1)}s-${(segment.endMs / 1000).toFixed(1)}s, ${segment.tiles.length} tiles)`,
     );
-    await renderSegment(segment, path);
+    await renderSegment(segment, avatarPaths, path);
     paths.push(path);
   }
   return paths;

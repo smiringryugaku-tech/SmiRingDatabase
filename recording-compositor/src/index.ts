@@ -5,6 +5,7 @@ dotenv.config();
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fetchAvatarPaths } from './avatars';
 import { concatSegments, extractThumbnail, mixAudio, muxFinal, renderSegments } from './ffmpeg';
 import { buildLayoutSegments } from './layout';
 import { BUCKET, deleteKeys, uploadFile } from './storage';
@@ -38,8 +39,13 @@ async function main(): Promise<void> {
     const totalMs = recordingDurationMs(tracks);
     console.log(`[Compositor] ${tracks.length} track files, ${(totalMs / 1000).toFixed(1)}s total`);
 
-    const layoutSegments = buildLayoutSegments(tracks, totalMs);
-    const videoPath = await concatSegments(await renderSegments(layoutSegments, workDir), workDir);
+    // Lets a camera-off participant still hold a tile (their avatar photo) instead of
+    // vanishing from the recording entirely — see `layout.ts`'s `pickParticipants`.
+    const identities = [...new Set(tracks.map((t) => t.identity))];
+    const avatarPaths = await fetchAvatarPaths(identities, workDir);
+
+    const layoutSegments = buildLayoutSegments(tracks, totalMs, new Set(avatarPaths.keys()));
+    const videoPath = await concatSegments(await renderSegments(layoutSegments, avatarPaths, workDir), workDir);
     const audioPath = await mixAudio(tracks, workDir);
     const finalPath = await muxFinal(videoPath, audioPath, workDir);
 

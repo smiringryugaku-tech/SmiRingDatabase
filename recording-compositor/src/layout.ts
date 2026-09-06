@@ -14,13 +14,29 @@ const MAX_FACES_IN_GRID = 20;
 const STAGE_WIDTH = 960; // Screen share takes 75% of the width; faces get the rest.
 const FACE_COLUMN_WIDTH = CANVAS_WIDTH - STAGE_WIDTH;
 
-export interface Tile {
-  track: TrackSegment;
+interface TileBox {
   x: number;
   y: number;
   width: number;
   height: number;
 }
+
+/** A camera track fills the tile. */
+export interface VideoTile extends TileBox {
+  kind: 'video';
+  track: TrackSegment;
+}
+
+/**
+ * Someone present for this stretch (a mic or screen-share track overlaps it) but without a
+ * camera track — their profile avatar fills the tile instead, for the whole segment.
+ */
+export interface IconTile extends TileBox {
+  kind: 'icon';
+  identity: string;
+}
+
+export type Tile = VideoTile | IconTile;
 
 /** A stretch of the call with a fixed layout — the timeline is cut wherever one changes. */
 export interface LayoutSegment {
@@ -34,36 +50,80 @@ const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
 const overlapMs = (track: TrackSegment, startMs: number, endMs: number) =>
   Math.max(0, Math.min(track.offsetMs + track.durationMs, endMs) - Math.max(track.offsetMs, startMs));
 
+interface ParticipantCandidate {
+  identity: string;
+  /** Their best (longest-overlapping) camera track for this stretch, if they have one. */
+  camera?: TrackSegment;
+  cameraOverlapMs: number;
+  /** Longest overlap from *any* of their tracks (mic, screen share, ...) — used to rank
+   *  icon candidates, and to decide they were present at all when they have no camera. */
+  presenceOverlapMs: number;
+  firstOffsetMs: number;
+}
+
+function collectParticipants(
+  tracks: TrackSegment[],
+  startMs: number,
+  endMs: number,
+): Map<string, ParticipantCandidate> {
+  const byIdentity = new Map<string, ParticipantCandidate>();
+  for (const track of tracks) {
+    const overlap = overlapMs(track, startMs, endMs);
+    if (overlap === 0) continue;
+
+    const entry = byIdentity.get(track.identity) ?? {
+      identity: track.identity,
+      cameraOverlapMs: 0,
+      presenceOverlapMs: 0,
+      firstOffsetMs: track.offsetMs,
+    };
+    entry.presenceOverlapMs = Math.max(entry.presenceOverlapMs, overlap);
+    entry.firstOffsetMs = Math.min(entry.firstOffsetMs, track.offsetMs);
+    if (track.source === 'camera' && overlap > entry.cameraOverlapMs) {
+      entry.cameraOverlapMs = overlap;
+      entry.camera = track;
+    }
+    byIdentity.set(track.identity, entry);
+  }
+  return byIdentity;
+}
+
 /**
  * One tile per person: a camera toggled off and on leaves two files for the same identity,
- * and whichever covered more of this stretch is the one worth showing.
+ * and whichever covered more of this stretch is the one worth showing. Video always wins a
+ * slot over an icon; past that, whoever's had the tile longest wins, and ties fall back to
+ * join order so the grid stays in a stable, predictable arrangement.
+ *
+ * `iconEligible` gates who can occupy an icon slot at all — an identity with no resolvable
+ * avatar is left out entirely rather than reserving a tile with nothing to draw in it.
  */
-function pickFaces(cameras: TrackSegment[], startMs: number, endMs: number, limit: number): TrackSegment[] {
-  const bestByIdentity = new Map<string, TrackSegment>();
-  for (const camera of cameras) {
-    if (overlapMs(camera, startMs, endMs) === 0) continue;
-    const current = bestByIdentity.get(camera.identity);
-    if (!current || overlapMs(camera, startMs, endMs) > overlapMs(current, startMs, endMs)) {
-      bestByIdentity.set(camera.identity, camera);
-    }
-  }
+function pickParticipants(
+  tracks: TrackSegment[],
+  startMs: number,
+  endMs: number,
+  limit: number,
+  iconEligible: Set<string>,
+): ParticipantCandidate[] {
+  const all = [...collectParticipants(tracks, startMs, endMs).values()];
+  const withCamera = all.filter((p) => p.camera);
+  const withoutCamera = all.filter((p) => !p.camera && iconEligible.has(p.identity));
 
-  return [...bestByIdentity.values()]
-    // Past the cap, keep whoever was on camera longest during this stretch; ties fall back
-    // to join order so the grid stays in a stable, predictable arrangement.
-    .sort(
-      (a, b) => overlapMs(b, startMs, endMs) - overlapMs(a, startMs, endMs) || a.offsetMs - b.offsetMs,
-    )
-    .slice(0, limit)
-    .sort((a, b) => a.offsetMs - b.offsetMs);
+  withCamera.sort((a, b) => b.cameraOverlapMs - a.cameraOverlapMs || a.firstOffsetMs - b.firstOffsetMs);
+  withoutCamera.sort((a, b) => b.presenceOverlapMs - a.presenceOverlapMs || a.firstOffsetMs - b.firstOffsetMs);
+
+  return [...withCamera.slice(0, limit), ...withoutCamera.slice(0, Math.max(0, limit - withCamera.length))].sort(
+    (a, b) => a.firstOffsetMs - b.firstOffsetMs,
+  );
+}
+
+function toTile(participant: ParticipantCandidate, box: TileBox): Tile {
+  return participant.camera
+    ? { kind: 'video', track: participant.camera, ...box }
+    : { kind: 'icon', identity: participant.identity, ...box };
 }
 
 /** Packs tiles into a centered grid inside the given box. */
-function gridCells(
-  count: number,
-  box: { x: number; y: number; width: number; height: number },
-  columns?: number,
-): Omit<Tile, 'track'>[] {
+function gridCells(count: number, box: TileBox, columns?: number): TileBox[] {
   const cols = columns ?? Math.ceil(Math.sqrt(count));
   const rows = Math.ceil(count / cols);
   const cellWidth = even(box.width / cols);
@@ -90,18 +150,22 @@ function gridCells(
 
 /**
  * Cuts the recording wherever the set of visible tiles could change: a screen share
- * starting or stopping, but just as much a camera starting or stopping — someone joining,
- * leaving, or toggling their camera. Without cutting on the latter too, a grid segment
+ * starting or stopping, a camera starting or stopping, or — now that a camera-off person
+ * can hold an icon tile — a mic (or any other track) starting or stopping, since that's
+ * what makes them present at all. Without cutting on every track's boundary, a segment
  * spanning "2 people, then a 3rd joins 5 minutes in" would size every tile for 3 people
- * (and leave the third slot black) for the whole segment, instead of resizing to 2 large
- * tiles until the 3rd person actually shows up.
+ * (and leave the third slot black, or wrongly show its icon early) for the whole segment,
+ * instead of resizing right when the 3rd person actually shows up.
  */
-export function buildLayoutSegments(tracks: TrackSegment[], totalMs: number): LayoutSegment[] {
+export function buildLayoutSegments(
+  tracks: TrackSegment[],
+  totalMs: number,
+  iconEligible: Set<string>,
+): LayoutSegment[] {
   const shares = tracks.filter((t) => t.source === 'screen_share');
-  const cameras = tracks.filter((t) => t.source === 'camera');
 
   const cuts = new Set<number>([0, totalMs]);
-  for (const track of [...shares, ...cameras]) {
+  for (const track of tracks) {
     if (track.offsetMs > 0 && track.offsetMs < totalMs) cuts.add(track.offsetMs);
     const end = track.offsetMs + track.durationMs;
     if (end > 0 && end < totalMs) cuts.add(end);
@@ -120,24 +184,24 @@ export function buildLayoutSegments(tracks: TrackSegment[], totalMs: number): La
       .sort((a, b) => a.offsetMs - b.offsetMs)[0];
 
     if (share) {
-      const faces = pickFaces(cameras, startMs, endMs, MAX_FACES_WITH_SHARE);
+      const participants = pickParticipants(tracks, startMs, endMs, MAX_FACES_WITH_SHARE, iconEligible);
       const faceCells = gridCells(
-        faces.length,
+        participants.length,
         { x: STAGE_WIDTH, y: 0, width: FACE_COLUMN_WIDTH, height: CANVAS_HEIGHT },
-        faces.length > 5 ? 2 : 1,
+        participants.length > 5 ? 2 : 1,
       );
       segments.push({
         startMs,
         endMs,
         tiles: [
-          { track: share, x: 0, y: 0, width: STAGE_WIDTH, height: CANVAS_HEIGHT },
-          ...faces.map((track, i) => ({ track, ...faceCells[i] })),
+          { kind: 'video', track: share, x: 0, y: 0, width: STAGE_WIDTH, height: CANVAS_HEIGHT },
+          ...participants.map((p, i) => toTile(p, faceCells[i])),
         ],
       });
     } else {
-      const faces = pickFaces(cameras, startMs, endMs, MAX_FACES_IN_GRID);
-      const cells = gridCells(faces.length, { x: 0, y: 0, width: CANVAS_WIDTH, height: CANVAS_HEIGHT });
-      segments.push({ startMs, endMs, tiles: faces.map((track, i) => ({ track, ...cells[i] })) });
+      const participants = pickParticipants(tracks, startMs, endMs, MAX_FACES_IN_GRID, iconEligible);
+      const cells = gridCells(participants.length, { x: 0, y: 0, width: CANVAS_WIDTH, height: CANVAS_HEIGHT });
+      segments.push({ startMs, endMs, tiles: participants.map((p, i) => toTile(p, cells[i])) });
     }
   }
 
