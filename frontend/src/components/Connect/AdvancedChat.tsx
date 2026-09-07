@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParticipants } from '@livekit/components-react';
 import {
-  Send,
   Plus,
   Users,
   UsersRound,
@@ -10,10 +9,59 @@ import {
   MessageSquare,
   Check,
   ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  Copy,
 } from 'lucide-react';
 import type { useAdvancedChat } from '../../hooks/useAdvancedChat';
 import type { ChatThread } from '../../types/chat';
 import { useAuth } from '../../context/AuthContext';
+import ChatRichEditor, { chatContentStyles } from './ChatRichEditor';
+
+const URL_REGEX = /(https?:\/\/[^\s]+)/g;
+const HTML_TAG_REGEX = /<[a-z][\s\S]*>/i;
+
+function renderMessageContent(text: string, isMe: boolean) {
+  if (HTML_TAG_REGEX.test(text)) {
+    return (
+      <div
+        className={`${chatContentStyles} ${
+          isMe
+            ? 'text-white prose-invert prose-headings:text-white prose-p:text-white prose-strong:text-white'
+            : ''
+        }`}
+        dangerouslySetInnerHTML={{ __html: text }}
+      />
+    );
+  }
+
+  const parts = text.split(URL_REGEX);
+  return (
+    <div className="whitespace-pre-wrap break-words">
+      {parts.map((part, i) => {
+        if (part.match(URL_REGEX)) {
+          return (
+            <a
+              key={i}
+              href={part}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`underline break-all font-medium transition-colors ${
+                isMe
+                  ? 'text-indigo-200 hover:text-white'
+                  : 'text-indigo-400 hover:text-indigo-300'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {part}
+            </a>
+          );
+        }
+        return part;
+      })}
+    </div>
+  );
+}
 
 interface AdvancedChatProps {
   chat: ReturnType<typeof useAdvancedChat>;
@@ -39,10 +87,49 @@ export default function AdvancedChat({
   const selfIdentity = user?.id || '';
   const participants = useParticipants();
 
-  const [inputVal, setInputVal] = useState('');
   const [showNewDmModal, setShowNewDmModal] = useState(false);
+  const [showMemberList, setShowMemberList] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const memberListRef = useRef<HTMLDivElement>(null);
+
+  const handleCopyMessage = async (msgId: string, rawText: string) => {
+    try {
+      let textToCopy = rawText;
+      if (HTML_TAG_REGEX.test(rawText)) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = rawText;
+        textToCopy = tmp.textContent || tmp.innerText || rawText;
+      }
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedMessageId(msgId);
+      setTimeout(() => {
+        setCopiedMessageId((prev) => (prev === msgId ? null : prev));
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy text:', err);
+    }
+  };
+
+  // Close member list popover on thread switch
+  useEffect(() => {
+    setShowMemberList(false);
+  }, [activeThreadId]);
+
+  // Close member list popover when clicking outside
+  useEffect(() => {
+    if (!showMemberList) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (memberListRef.current && !memberListRef.current.contains(e.target as Node)) {
+        setShowMemberList(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showMemberList]);
 
   // Other participants in the room available for DM
   const otherParticipants = useMemo(() => {
@@ -58,38 +145,6 @@ export default function AdvancedChat({
     return threads.find((t) => t.id === activeThreadId) || threads[0];
   }, [threads, activeThreadId]);
 
-  const handleSend = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!inputVal.trim()) return;
-    const text = inputVal;
-    setInputVal('');
-    await sendMessage(text, activeThreadId);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    // Ignore Enter while an IME composition (e.g. Japanese input) is still in
-    // progress — that Enter confirms the conversion, it doesn't submit the form.
-    // keyCode 229 is the legacy fallback some browsers still report during composition.
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  const handleToggleParticipant = (identity: string) => {
-    setSelectedParticipants((prev) =>
-      prev.includes(identity) ? prev.filter((id) => id !== identity) : [...prev, identity],
-    );
-  };
-
-  const handleStartDm = () => {
-    if (selectedParticipants.length === 0) return;
-    createOrOpenDmThread(selectedParticipants);
-    setSelectedParticipants([]);
-    setShowNewDmModal(false);
-  };
-
   const getParticipantMeta = (identity: string) => {
     const p = participants.find((part) => part.identity === identity);
     let avatarUrl: string | null = null;
@@ -103,6 +158,52 @@ export default function AdvancedChat({
       name: p?.name || p?.identity || identity,
       avatarUrl,
     };
+  };
+
+  // Participant details for active thread (everyone or DM members)
+  const threadMembers = useMemo(() => {
+    if (activeThread.isEveryone) {
+      return participants.map((p) => {
+        const meta = getParticipantMeta(p.identity);
+        return {
+          identity: p.identity,
+          name: meta.name,
+          avatarUrl: meta.avatarUrl,
+          isSelf: p.identity === selfIdentity,
+          isOnline: true,
+        };
+      });
+    }
+
+    // DM/Group DM: sender identities + self
+    const allIdentities = Array.from(
+      new Set([selfIdentity, ...activeThread.participantIdentities]),
+    );
+
+    return allIdentities.map((id) => {
+      const meta = getParticipantMeta(id);
+      const isOnline = participants.some((p) => p.identity === id);
+      return {
+        identity: id,
+        name: meta.name,
+        avatarUrl: meta.avatarUrl,
+        isSelf: id === selfIdentity,
+        isOnline,
+      };
+    });
+  }, [activeThread, participants, selfIdentity]);
+
+  const handleToggleParticipant = (identity: string) => {
+    setSelectedParticipants((prev) =>
+      prev.includes(identity) ? prev.filter((id) => id !== identity) : [...prev, identity],
+    );
+  };
+
+  const handleStartDm = () => {
+    if (selectedParticipants.length === 0) return;
+    createOrOpenDmThread(selectedParticipants);
+    setSelectedParticipants([]);
+    setShowNewDmModal(false);
   };
 
   // Everyone -> globe-ish "Users" icon; 1-on-1 DM -> the other person's avatar (falls back
@@ -132,21 +233,95 @@ export default function AdvancedChat({
     <div className="flex flex-col h-full w-full bg-[#0d0f14] text-gray-100 select-none overflow-hidden font-sans border-l border-gray-800/80">
       {/* Top Header: Thread Name & Back/Close */}
       <header className="h-11 shrink-0 bg-gray-950/90 border-b border-gray-800/80 px-3 flex items-center justify-between gap-2 z-20">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {onBackToVideo && (
             <button
               onClick={onBackToVideo}
-              className="p-1 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white transition-colors"
+              className="p-1 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white transition-colors shrink-0"
               title="映像に戻る"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
-          <div className="flex items-center gap-1.5 min-w-0">
-            {renderThreadIcon(activeThread, 'w-4 h-4')}
-            <h3 className="font-bold text-xs sm:text-sm text-gray-200 truncate">
-              {activeThread.name}
-            </h3>
+
+          {/* Thread Title with Click-to-Toggle Participant List */}
+          <div className="relative min-w-0 flex-1" ref={memberListRef}>
+            <button
+              type="button"
+              onClick={() => setShowMemberList((prev) => !prev)}
+              className="flex items-center gap-1.5 max-w-full px-1.5 py-1 -ml-1 rounded-lg hover:bg-gray-800/70 active:bg-gray-800 transition-colors text-left group"
+              title="参加メンバー一覧を表示"
+            >
+              {renderThreadIcon(activeThread, 'w-4 h-4')}
+              <span className="font-bold text-xs sm:text-sm text-gray-200 truncate group-hover:text-white min-w-0">
+                {activeThread.name}
+              </span>
+              <span className="text-[10px] text-gray-400 bg-gray-800/90 px-1.5 py-0.5 rounded-full shrink-0 group-hover:bg-gray-700/90 transition-colors">
+                {threadMembers.length}
+              </span>
+              {showMemberList ? (
+                <ChevronUp className="w-3.5 h-3.5 text-gray-400 shrink-0 group-hover:text-gray-200" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0 group-hover:text-gray-200" />
+              )}
+            </button>
+
+            {/* Members Popover Dropdown */}
+            {showMemberList && (
+              <div className="absolute top-full left-0 mt-1.5 w-64 max-w-[calc(100vw-2rem)] bg-gray-900 border border-gray-700/90 rounded-xl shadow-2xl z-50 p-2.5 space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center justify-between px-1 pb-1.5 border-b border-gray-800">
+                  <span className="text-[11px] font-bold text-gray-400">
+                    参加メンバー ({threadMembers.length}名)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowMemberList(false)}
+                    className="text-gray-400 hover:text-gray-200 p-0.5 rounded-md hover:bg-gray-800 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto space-y-1 pr-1">
+                  {threadMembers.map((member) => (
+                    <div
+                      key={member.identity}
+                      className="flex items-center justify-between p-1.5 rounded-lg hover:bg-gray-800/60 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {member.avatarUrl ? (
+                          <img
+                            src={member.avatarUrl}
+                            alt=""
+                            className="w-6 h-6 rounded-lg object-cover shrink-0"
+                          />
+                        ) : (
+                          <div className="w-6 h-6 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-400 shrink-0">
+                            <User className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+                        <span className="text-xs text-gray-200 truncate font-medium">
+                          {member.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        {member.isSelf && (
+                          <span className="text-[10px] text-indigo-400 bg-indigo-950/60 border border-indigo-800/50 px-1 rounded font-medium">
+                            自分
+                          </span>
+                        )}
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            member.isOnline ? 'bg-emerald-500' : 'bg-gray-600'
+                          }`}
+                          title={member.isOnline ? '参加中' : '退出中'}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -282,9 +457,9 @@ export default function AdvancedChat({
       )}
 
       {/* Message List */}
-      <div className={`flex-1 overflow-y-auto space-y-2.5 min-h-0 ${isCompact ? 'p-2' : 'p-3'}`}>
+      <div className={`flex-1 overflow-y-auto space-y-2.5 min-h-0 select-text ${isCompact ? 'p-2' : 'p-3'}`}>
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-1.5 py-8">
+          <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-1.5 py-8 select-none">
             <MessageSquare className="w-8 h-8 opacity-30" />
             <p className="text-xs font-semibold">まだメッセージはありません</p>
             <p className="text-[10px] text-gray-600">最初のメッセージを送信しましょう</p>
@@ -292,6 +467,7 @@ export default function AdvancedChat({
         ) : (
           messages.map((m) => {
             const isMe = m.sender.identity === selfIdentity;
+            const isCopied = copiedMessageId === m.id;
             const timeStr = new Date(m.timestamp).toLocaleTimeString([], {
               hour: '2-digit',
               minute: '2-digit',
@@ -304,7 +480,7 @@ export default function AdvancedChat({
               >
                 {/* Avatar */}
                 {!isMe && (
-                  <div className="w-6 h-6 rounded-lg bg-gray-800 overflow-hidden shrink-0 border border-gray-700 flex items-center justify-center mb-0.5">
+                  <div className="w-6 h-6 rounded-lg bg-gray-800 overflow-hidden shrink-0 border border-gray-700 flex items-center justify-center mb-0.5 select-none">
                     {m.sender.avatarUrl ? (
                       <img src={m.sender.avatarUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
@@ -320,20 +496,38 @@ export default function AdvancedChat({
                   } max-w-[80%]`}
                 >
                   {!isMe && (
-                    <span className="text-[10px] font-semibold text-gray-400 mb-1 ml-1 truncate max-w-[140px]">
+                    <span className="text-[10px] font-semibold text-gray-400 mb-1 ml-1 truncate max-w-[140px] select-none">
                       {m.sender.name}
                     </span>
                   )}
-                  <div
-                    className={`px-3 py-2 rounded-2xl text-xs break-words whitespace-pre-wrap leading-relaxed shadow-sm ${
-                      isMe
-                        ? 'bg-indigo-600 text-white rounded-br-xs'
-                        : 'bg-gray-800 text-gray-100 rounded-bl-xs border border-gray-700/60'
-                    }`}
-                  >
-                    {m.text}
+                  <div className="relative group/bubble flex items-center">
+                    <div
+                      className={`px-3 py-2 rounded-2xl text-xs break-words whitespace-pre-wrap leading-relaxed shadow-sm select-text ${
+                        isMe
+                          ? 'bg-indigo-600 text-white rounded-br-xs'
+                          : 'bg-gray-800 text-gray-100 rounded-bl-xs border border-gray-700/60'
+                      }`}
+                    >
+                      {renderMessageContent(m.text, isMe)}
+                    </div>
+
+                    {/* Copy Button (hover to show) */}
+                    <button
+                      type="button"
+                      onClick={() => handleCopyMessage(m.id, m.text)}
+                      className={`absolute opacity-0 group-hover/bubble:opacity-100 focus:opacity-100 transition-opacity p-1 rounded-md bg-gray-900/90 text-gray-300 hover:text-white border border-gray-700/80 shadow-md ${
+                        isMe ? '-left-7' : '-right-7'
+                      }`}
+                      title={isCopied ? 'コピーしました' : 'メッセージをコピー'}
+                    >
+                      {isCopied ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3" />
+                      )}
+                    </button>
                   </div>
-                  <span className="text-[9px] text-gray-500 mt-1 px-1">{timeStr}</span>
+                  <span className="text-[9px] text-gray-500 mt-1 px-1 select-none">{timeStr}</span>
                 </div>
               </div>
             );
@@ -343,29 +537,16 @@ export default function AdvancedChat({
       </div>
 
       {/* Input Area */}
-      <footer className="p-2.5 bg-gray-950/95 border-t border-gray-800/90 shrink-0">
-        <form onSubmit={handleSend} className="flex items-center gap-1.5">
-          <input
-            type="text"
-            value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              activeThread.isEveryone
-                ? '全体にメッセージを送信...'
-                : `${activeThread.name}に送信...`
-            }
-            className="flex-1 bg-gray-900 border border-gray-700/90 rounded-xl px-3 py-2 text-xs text-gray-100 placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
-          />
-          <button
-            type="submit"
-            disabled={!inputVal.trim()}
-            className="p-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white rounded-xl shadow-md transition-all active:scale-95 shrink-0"
-            title="送信"
-          >
-            <Send className="w-3.5 h-3.5" />
-          </button>
-        </form>
+      <footer className="p-2 bg-gray-950/95 border-t border-gray-800/90 shrink-0">
+        <ChatRichEditor
+          key={activeThreadId}
+          onSend={(html) => sendMessage(html, activeThreadId)}
+          placeholder={
+            activeThread.isEveryone
+              ? '全体にメッセージを送信...'
+              : `${activeThread.name}に送信...`
+          }
+        />
       </footer>
     </div>
   );

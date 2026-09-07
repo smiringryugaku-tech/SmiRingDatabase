@@ -76,19 +76,17 @@ export function useAdvancedChat({ roomId, selfIdentity }: UseAdvancedChatOptions
 
       setThreads((prev) => {
         const existing = prev.find((t) => t.id === threadId);
-        if (existing) {
-          return prev;
-        }
-        return [
-          ...prev,
-          {
-            id: threadId,
-            name: threadName,
-            isEveryone: false,
-            participantIdentities: memberIdentities,
-            unreadCount: 0,
-          },
-        ];
+        const everyone = prev.find((t) => t.isEveryone);
+        const otherDms = prev.filter((t) => !t.isEveryone && t.id !== threadId);
+        const targetThread = existing || {
+          id: threadId,
+          name: threadName,
+          isEveryone: false,
+          participantIdentities: memberIdentities,
+          unreadCount: 0,
+        };
+
+        return everyone ? [everyone, targetThread, ...otherDms] : [targetThread, ...otherDms];
       });
 
       setActiveThreadId(threadId);
@@ -109,36 +107,41 @@ export function useAdvancedChat({ roomId, selfIdentity }: UseAdvancedChatOptions
         const existing = prev.find((t) => t.id === msg.threadId);
         const isCurrentlyActive = activeThreadId === msg.threadId;
 
+        let targetThread: ChatThread;
         if (existing) {
-          return prev.map((t) =>
-            t.id === msg.threadId
-              ? {
-                  ...t,
-                  lastMessage: msg,
-                  unreadCount: isCurrentlyActive || !notify ? t.unreadCount : t.unreadCount + 1,
-                }
-              : t,
+          targetThread = {
+            ...existing,
+            lastMessage: msg,
+            unreadCount: isCurrentlyActive || !notify ? existing.unreadCount : existing.unreadCount + 1,
+          };
+        } else {
+          const otherMembers = (isEveryone ? [] : [msg.sender.identity, ...msg.recipients]).filter(
+            (id) => id !== selfIdentity,
           );
-        }
+          const threadName =
+            otherMembers
+              .map((id) => getParticipantInfo(id).name)
+              .join(', ') || 'ダイレクトメッセージ';
 
-        const otherMembers = (isEveryone ? [] : [msg.sender.identity, ...msg.recipients]).filter(
-          (id) => id !== selfIdentity,
-        );
-        const threadName = otherMembers
-          .map((id) => getParticipantInfo(id).name)
-          .join(', ') || 'ダイレクトメッセージ';
-
-        return [
-          ...prev,
-          {
+          targetThread = {
             id: msg.threadId,
             name: threadName,
             isEveryone,
             participantIdentities: otherMembers,
             lastMessage: msg,
             unreadCount: isCurrentlyActive || !notify ? 0 : 1,
-          },
-        ];
+          };
+        }
+
+        if (targetThread.isEveryone) {
+          const otherDms = prev.filter((t) => !t.isEveryone);
+          return [targetThread, ...otherDms];
+        } else {
+          // Place newly active DM thread right after the pinned 'everyone' thread (left-most position for DMs)
+          const everyone = prev.find((t) => t.isEveryone);
+          const otherDms = prev.filter((t) => !t.isEveryone && t.id !== targetThread.id);
+          return everyone ? [everyone, targetThread, ...otherDms] : [targetThread, ...otherDms];
+        }
       });
 
       setMessages((prev) => {
