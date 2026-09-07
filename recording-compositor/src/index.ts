@@ -85,7 +85,14 @@ async function main(): Promise<void> {
     if (error) throw error;
 
     // Only once the final video is safely stored: these are the only copy until then.
-    await deleteKeys(BUCKET, keys);
+    // KEEP_TEMP_TRACKS leaves them in place for a run, so the raw per-track files can be
+    // pulled apart when a recording comes out mis-timed — they are otherwise unrecoverable
+    // and the finished video alone can't show whether a file's timeline matched wall clock.
+    if (process.env.KEEP_TEMP_TRACKS === '1') {
+      console.log(`[Compositor] KEEP_TEMP_TRACKS set — leaving ${keys.length} temp file(s) in place`);
+    } else {
+      await deleteKeys(BUCKET, keys);
+    }
     console.log(`[Compositor] Done: ${key}`);
   } finally {
     await rm(workDir, { recursive: true, force: true });

@@ -12,6 +12,8 @@ export interface TrackSegment {
   identity: string;
   source: TrackSourceLabel;
   trackId: string;
+  /** Which stretch of that track this file is — a camera off and on again yields several. */
+  segmentIndex?: number;
   /** Milliseconds from the start of the recording to where this file's content begins. */
   offsetMs: number;
   durationMs: number;
@@ -54,6 +56,13 @@ function parseKey(
 const segmentKey = (trackId: string, segmentIndex: number) => `${trackId}#${segmentIndex}`;
 
 /**
+ * When each egress was stopped, purely so `reportTimelineFidelity` can compare how long an
+ * egress ran against how much media its file actually holds. Populated as a side effect of
+ * reading the start times, since it comes from the same rows.
+ */
+let endedAtBySegment = new Map<string, number>();
+
+/**
  * Start times come from our own `connect_recording_tracks` table, written by the backend
  * the moment it calls `startTrackEgress` for each stretch — not from LiveKit's `listEgress`
  * after the fact. That was tried first and turned out unreliable for tracks added mid-
@@ -64,12 +73,17 @@ const segmentKey = (trackId: string, segmentIndex: number) => `${trackId}#${segm
 async function fetchTrackStartTimes(recordingId: string): Promise<Map<string, number>> {
   const { data, error } = await supabase
     .from('connect_recording_tracks')
-    .select('track_id, segment_index, started_at')
+    .select('track_id, segment_index, started_at, ended_at')
     .eq('recording_id', recordingId);
   if (error) {
     console.error(`[Compositor] Failed to fetch track start times for ${recordingId}:`, error);
     return new Map();
   }
+  endedAtBySegment = new Map(
+    data
+      .filter((row) => row.ended_at)
+      .map((row) => [segmentKey(row.track_id, row.segment_index ?? 0), new Date(row.ended_at).getTime()]),
+  );
   return new Map(
     data.map((row) => [segmentKey(row.track_id, row.segment_index ?? 0), new Date(row.started_at).getTime()]),
   );
@@ -167,13 +181,60 @@ export async function collectTrackSegments(
   const known = usable.map((d) => d.startedAt).filter((t): t is number => t !== undefined);
   const recordingStart = known.length > 0 ? Math.min(...known) : 0;
   const segments = usable
-    .map(({ startedAt, segmentIndex, ...rest }) => ({
-      ...rest,
-      offsetMs: startedAt === undefined ? 0 : Math.max(0, startedAt - recordingStart),
+    .map((d) => ({
+      ...d,
+      offsetMs: d.startedAt === undefined ? 0 : Math.max(0, d.startedAt - recordingStart),
     }))
     .sort((a, b) => a.offsetMs - b.offsetMs);
 
+  reportTimelineFidelity(segments);
+
   return { segments, keys, recordingStartMs: recordingStart };
+}
+
+/**
+ * Logs, per recorded stretch, how long its egress ran against how much media its file holds.
+ *
+ * The compositor's whole placement model is "file position t is wall-clock offsetMs + t". If
+ * a publisher stops sending — a layer switch, a backgrounded tab, a phone on a flaky link —
+ * and the recorded timeline closes that gap rather than preserving it, the model breaks and
+ * everything after the gap plays early, drifting further ahead with each one. Audio never
+ * shows it because a muted mic still sends silence, so its timeline can't compress.
+ *
+ * `missing` is that discrepancy. Consistently near zero means the model holds and any
+ * mis-timing is elsewhere; consistently large means it doesn't.
+ */
+function reportTimelineFidelity(segments: (TrackSegment & { startedAt?: number })[]): void {
+  for (const segment of segments) {
+    const started = segment.startedAt;
+    const ended = endedAtBySegment.get(segmentKey(segment.trackId, segment.segmentIndex ?? 0));
+    const frames = segment.frameTimesSec ?? [];
+
+    let maxGapSec = 0;
+    let maxGapAtSec = 0;
+    for (let i = 1; i < frames.length; i++) {
+      const gap = frames[i] - frames[i - 1];
+      if (gap > maxGapSec) {
+        maxGapSec = gap;
+        maxGapAtSec = frames[i - 1];
+      }
+    }
+
+    const wallSec = started !== undefined && ended !== undefined ? (ended - started) / 1000 : undefined;
+    const mediaSec = segment.durationMs / 1000;
+    const parts = [
+      `${segment.identity.slice(0, 8)} ${segment.source} seg${segment.segmentIndex ?? 0}`,
+      `offset ${(segment.offsetMs / 1000).toFixed(1)}s`,
+      `media ${mediaSec.toFixed(1)}s`,
+      wallSec === undefined ? 'wall ?' : `wall ${wallSec.toFixed(1)}s`,
+      wallSec === undefined ? 'missing ?' : `missing ${(wallSec - mediaSec).toFixed(1)}s`,
+    ];
+    if (frames.length) {
+      parts.push(`frames ${frames.length}`, `firstPts ${frames[0].toFixed(2)}s`);
+      if (maxGapSec > 0.5) parts.push(`maxGap ${maxGapSec.toFixed(1)}s@${maxGapAtSec.toFixed(1)}s`);
+    }
+    console.log(`[Compositor]   ${parts.join(' | ')}`);
+  }
 }
 
 export function recordingDurationMs(segments: TrackSegment[]): number {
