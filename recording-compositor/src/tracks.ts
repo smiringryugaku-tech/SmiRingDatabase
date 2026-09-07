@@ -131,6 +131,28 @@ export async function collectPresenceIntervals(
     .filter((interval) => interval.durationMs > 0);
 }
 
+/**
+ * Trims a file's usable length to how long its egress actually ran.
+ *
+ * Only ever shortens, and only when both ends of the egress's lifetime are known: a file
+ * shorter than its egress ran is normal (the publisher stopped sending), a file *longer*
+ * than that is not.
+ */
+function clampToEgressLifetime(
+  durationMs: number,
+  startedAt: number | undefined,
+  endedAt: number | undefined,
+): number {
+  if (startedAt === undefined || endedAt === undefined) return durationMs;
+  const lifetimeMs = endedAt - startedAt;
+  if (lifetimeMs <= 0 || durationMs <= lifetimeMs) return durationMs;
+  console.warn(
+    `[Compositor] File holds ${(durationMs / 1000).toFixed(1)}s but its egress ran ` +
+      `${(lifetimeMs / 1000).toFixed(1)}s — trimming to the egress lifetime`,
+  );
+  return lifetimeMs;
+}
+
 /** Downloads every recorded track for a room and places it on a shared timeline. */
 export async function collectTrackSegments(
   roomName: string,
@@ -184,6 +206,12 @@ export async function collectTrackSegments(
     .map((d) => ({
       ...d,
       offsetMs: d.startedAt === undefined ? 0 : Math.max(0, d.startedAt - recordingStart),
+      // A file can only legitimately hold as much media as its egress was running for. When
+      // it holds more, the egress outlived the moment we recorded it as stopped, and the
+      // surplus is footage from after the camera was supposed to be off — placing it on the
+      // timeline would keep someone on screen long after they left the frame, and give the
+      // layout a second, differently-offset copy of the same camera to choose between.
+      durationMs: clampToEgressLifetime(d.durationMs, d.startedAt, endedAtBySegment.get(segmentKey(d.trackId, d.segmentIndex))),
     }))
     .sort((a, b) => a.offsetMs - b.offsetMs);
 

@@ -187,30 +187,50 @@ export async function startTrackRecording(
   trackId: string,
 ): Promise<boolean> {
   if (!egressClient) return false;
+
+  // The row is claimed *before* the egress is started, because inserting it is what makes
+  // this safe to call concurrently: a partial unique index allows only one un-ended row per
+  // track, so of several callers racing to record the same camera (two `/sync` pings, or a
+  // ping arriving alongside the `track_published` webhook) exactly one gets past this point.
+  // Starting first and inserting after would leave the losers' egresses running unrecorded,
+  // which is how one camera ended up with several overlapping recordings of itself.
   const segmentIndex = await nextSegmentIndex(recordingId, trackId);
   const requestedAt = new Date();
-  try {
-    const key = buildTempRecordingKey(roomId, identity, source, trackId, segmentIndex);
-    await egressClient.startTrackEgress(roomId, buildTrackEgressOutput(key), trackId);
-  } catch (error: any) {
-    console.error(`[Recording] startTrackEgress failed (${roomId}/${identity}/${trackId}):`, error?.message);
+  const { data: claimed, error: claimError } = await supabase
+    .from('connect_recording_tracks')
+    .insert({
+      recording_id: recordingId,
+      track_id: trackId,
+      segment_index: segmentIndex,
+      identity,
+      source: sourceLabel(source),
+      started_at: requestedAt.toISOString(),
+    })
+    .select('id')
+    .single();
+  if (claimError || !claimed) {
+    // Expected whenever two callers race — the other one is already recording this track.
+    console.log(`[Recording] Not starting ${trackId}: already being recorded (${claimError?.code})`);
     return false;
   }
 
-  const { error: dbError } = await supabase.from('connect_recording_tracks').insert({
-    recording_id: recordingId,
-    track_id: trackId,
-    segment_index: segmentIndex,
-    identity,
-    source: sourceLabel(source),
-    started_at: requestedAt.toISOString(),
-  });
-  if (dbError) {
-    // The egress is running regardless — losing this row only costs the compositor its
-    // timing fallback (offset 0) for this one track, not the recording itself.
-    console.error(`[Recording] Failed to record track start time (${trackId}):`, dbError);
+  try {
+    const key = buildTempRecordingKey(roomId, identity, source, trackId, segmentIndex);
+    const egress = await egressClient.startTrackEgress(roomId, buildTrackEgressOutput(key), trackId);
+    // Kept so this egress can be stopped by id. Searching `listEgress` by trackId instead
+    // stops only the first match, which silently left duplicates running to the end of the
+    // call, each writing a file the compositor then had to choose between.
+    await supabase
+      .from('connect_recording_tracks')
+      .update({ egress_id: egress.egressId })
+      .eq('id', claimed.id);
+    return true;
+  } catch (error: any) {
+    console.error(`[Recording] startTrackEgress failed (${roomId}/${identity}/${trackId}):`, error?.message);
+    // Release the claim, or nothing would ever record this track again for this recording.
+    await supabase.from('connect_recording_tracks').delete().eq('id', claimed.id);
+    return false;
   }
-  return true;
 }
 
 /** Next free segment number for this track, so a re-recorded camera gets its own file. */
@@ -241,13 +261,31 @@ export async function stopTrackRecording(
   recordingId: string,
   trackId: string,
 ): Promise<void> {
-  if (egressClient) {
+  const { data: open } = await supabase
+    .from('connect_recording_tracks')
+    .select('id, egress_id')
+    .eq('recording_id', recordingId)
+    .eq('track_id', trackId)
+    .is('ended_at', null)
+    .maybeSingle();
+
+  if (egressClient && open?.egress_id) {
+    try {
+      await egressClient.stopEgress(open.egress_id);
+    } catch (error: any) {
+      // Already finished on its own (the publisher left, the track was unpublished) — the
+      // row still needs closing either way.
+      console.warn(`[Recording] Failed to stop egress ${open.egress_id}:`, error?.message);
+    }
+  } else if (egressClient) {
+    // No id recorded (a row from before egress ids were stored, or a failed update). Falling
+    // back to a search stops at most one egress for this track, so this is best-effort.
     try {
       const active = await egressClient.listEgress({ roomName: roomId, active: true });
       const match = active.find((e) => e.request.case === 'track' && e.request.value.trackId === trackId);
       if (match) await egressClient.stopEgress(match.egressId);
+      else console.warn(`[Recording] No egress id and no active egress found for track ${trackId}`);
     } catch (error: any) {
-      // Already finished on its own — the row still needs closing either way.
       console.warn(`[Recording] Failed to stop egress for track ${trackId}:`, error?.message);
     }
   }
