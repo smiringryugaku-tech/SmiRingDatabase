@@ -108,6 +108,35 @@ export async function canDecodeImage(path: string): Promise<boolean> {
 }
 
 /**
+ * Re-encodes a recorded track to constant frame rate before it is used for compositing.
+ *
+ * Egress writes what the SFU forwarded, and at a simulcast layer switch — every time the
+ * publisher's quality changes — that arrives with duplicate, non-monotonic timestamps
+ * ("non monotonically increasing dts" from the decoder). One such file in a filter graph
+ * does not merely mistime itself: it disrupts the scheduling of the whole graph, and the
+ * *other* tiles' frames get dropped. That is what turned the screen share black whenever a
+ * camera was on screen beside it, while the camera itself kept playing.
+ *
+ * Normalising also removes the reason the rest of the pipeline had to be careful about
+ * sparse sources: a static screen share sends a frame every second or so, and here those
+ * become real duplicated frames at a fixed rate, so seeking lands on a frame every time.
+ * Positions are preserved exactly — `fps` duplicates in place rather than resampling.
+ */
+export async function normalizeVideo(inputPath: string, outputPath: string): Promise<void> {
+  await run('ffmpeg', [
+    '-y',
+    // Rebuilds timestamps from scratch, which is what makes the duplicate DTS harmless.
+    '-fflags', '+genpts',
+    '-i', inputPath,
+    '-vf', `fps=${FPS}`,
+    '-an',
+    '-r', String(FPS),
+    ...VIDEO_ARGS.filter((arg) => arg !== '-r' && arg !== String(FPS)),
+    outputPath,
+  ]);
+}
+
+/**
  * Presentation times of every video frame in a file, sorted.
  *
  * Read from the container index, so it costs no decoding — tens of milliseconds even for a

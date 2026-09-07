@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { probeDurationMs, probeFrameTimesSec } from './ffmpeg';
+import { normalizeVideo, probeDurationMs, probeFrameTimesSec } from './ffmpeg';
 import { BUCKET, downloadTo, listKeys } from './storage';
 import { supabase } from './supabase';
 
@@ -22,6 +22,8 @@ export interface TrackSegment {
    * than into a gap. Video tracks only; see `renderSegment`.
    */
   frameTimesSec?: number[];
+  /** Frame times as recorded, before normalisation — for the diagnostics only. */
+  rawFrameTimesSec?: number[];
 }
 
 export const isVideo = (s: TrackSourceLabel) => s === 'camera' || s === 'screen_share';
@@ -185,16 +187,35 @@ export async function collectTrackSegments(
         return null;
       }
 
-      const path = join(workDir, `${index}_${key.split('/').pop()}`);
-      await downloadTo(BUCKET, key, path);
+      const downloadPath = join(workDir, `${index}_${key.split('/').pop()}`);
+      await downloadTo(BUCKET, key, downloadPath);
+      if (!(await probeDurationMs(downloadPath))) {
+        console.warn(`[Compositor] Unreadable or empty file, skipping: ${key}`);
+        return null;
+      }
+
+      // Video is re-encoded to constant frame rate up front — see `normalizeVideo` for why
+      // the recorded timestamps can't be composited from directly. Audio is mixed, never
+      // seeked per segment, so it is used as recorded.
+      const rawFrameTimesSec = isVideo(parsed.source) ? await probeFrameTimesSec(downloadPath) : undefined;
+      let path = downloadPath;
+      if (isVideo(parsed.source)) {
+        const normalizedPath = join(workDir, `${index}_normalized.mp4`);
+        try {
+          await normalizeVideo(downloadPath, normalizedPath);
+          path = normalizedPath;
+        } catch (e: any) {
+          console.warn(`[Compositor] Could not normalize ${key}, using it as recorded:`, e?.message);
+        }
+      }
+
       const durationMs = await probeDurationMs(path);
       if (!durationMs) {
         console.warn(`[Compositor] Unreadable or empty file, skipping: ${key}`);
         return null;
       }
-      // Only video is ever seeked into per segment, and reading the index costs nothing.
       const frameTimesSec = isVideo(parsed.source) ? await probeFrameTimesSec(path) : undefined;
-      return { key, path, ...parsed, startedAt, durationMs, frameTimesSec };
+      return { key, path, ...parsed, startedAt, durationMs, frameTimesSec, rawFrameTimesSec };
     }),
   );
 
@@ -240,7 +261,7 @@ function reportTimelineFidelity(segments: (TrackSegment & { startedAt?: number }
   for (const segment of segments) {
     const started = segment.startedAt;
     const ended = endedAtBySegment.get(segmentKey(segment.trackId, segment.segmentIndex ?? 0));
-    const frames = segment.frameTimesSec ?? [];
+    const frames = segment.rawFrameTimesSec ?? segment.frameTimesSec ?? [];
 
     // `gapSum` is what separates the two ways a file can hold less than its egress ran for,
     // which need opposite handling:
