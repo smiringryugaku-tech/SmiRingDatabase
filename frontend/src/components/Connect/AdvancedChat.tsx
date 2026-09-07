@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useParticipants } from '@livekit/components-react';
 import {
   Plus,
@@ -76,11 +76,14 @@ export default function AdvancedChat({
 }: AdvancedChatProps) {
   const {
     messages,
+    allMessages,
     threads,
     activeThreadId,
     setActiveThreadId,
     sendMessage,
     createOrOpenDmThread,
+    getParticipantInfo,
+    isUuid,
   } = chat;
 
   const { user } = useAuth();
@@ -145,20 +148,52 @@ export default function AdvancedChat({
     return threads.find((t) => t.id === activeThreadId) || threads[0];
   }, [threads, activeThreadId]);
 
-  const getParticipantMeta = (identity: string) => {
-    const p = participants.find((part) => part.identity === identity);
-    let avatarUrl: string | null = null;
-    if (p?.metadata) {
-      try {
-        const parsed = JSON.parse(p.metadata);
-        avatarUrl = parsed.avatar_url || null;
-      } catch {}
-    }
-    return {
-      name: p?.name || p?.identity || identity,
-      avatarUrl,
-    };
-  };
+  const getParticipantMeta = useCallback(
+    (identity: string) => {
+      // 1. Query chat.getParticipantInfo (checks LiveKit participants + cached message senders)
+      // Both LiveKit metadata and message history strictly contain the Database avatar and Connect display name.
+      const info = getParticipantInfo(identity);
+      if (info && info.name && !isUuid(info.name) && info.name !== '参加者') {
+        return info;
+      }
+
+      // 2. Fallback: inspect allMessages for any sender matching this identity (stored sender_avatar_url from DB)
+      const foundInMsg = allMessages?.find((m) => m.sender.identity === identity);
+      if (foundInMsg && foundInMsg.sender.name && !isUuid(foundInMsg.sender.name)) {
+        return {
+          name: foundInMsg.sender.name,
+          avatarUrl: foundInMsg.sender.avatarUrl || null,
+        };
+      }
+
+      // 3. Fallback for self: use Connect participant name if available, otherwise '自分'
+      if (identity === selfIdentity) {
+        return {
+          name: info?.name && !isUuid(info.name) && info.name !== '参加者' ? info.name : '自分',
+          avatarUrl: info?.avatarUrl || null,
+        };
+      }
+
+      // 4. Safe fallback for others: never show raw UUID
+      const safeName = info?.name && !isUuid(info.name) ? info.name : '参加者';
+      return {
+        name: safeName,
+        avatarUrl: info?.avatarUrl || null,
+      };
+    },
+    [selfIdentity, getParticipantInfo, isUuid, allMessages],
+  );
+
+  const getThreadDisplayName = useCallback(
+    (thread: ChatThread) => {
+      if (thread.isEveryone) return thread.name;
+      if (thread.participantIdentities.length > 0) {
+        return thread.participantIdentities.map((id) => getParticipantMeta(id).name).join(', ');
+      }
+      return !isUuid(thread.name) ? thread.name : 'ダイレクトメッセージ';
+    },
+    [getParticipantMeta, isUuid],
+  );
 
   // Participant details for active thread (everyone or DM members)
   const threadMembers = useMemo(() => {
@@ -191,7 +226,7 @@ export default function AdvancedChat({
         isOnline,
       };
     });
-  }, [activeThread, participants, selfIdentity]);
+  }, [activeThread, participants, selfIdentity, getParticipantMeta]);
 
   const handleToggleParticipant = (identity: string) => {
     setSelectedParticipants((prev) =>
@@ -254,7 +289,7 @@ export default function AdvancedChat({
             >
               {renderThreadIcon(activeThread, 'w-4 h-4')}
               <span className="font-bold text-xs sm:text-sm text-gray-200 truncate group-hover:text-white min-w-0">
-                {activeThread.name}
+                {getThreadDisplayName(activeThread)}
               </span>
               <span className="text-[10px] text-gray-400 bg-gray-800/90 px-1.5 py-0.5 rounded-full shrink-0 group-hover:bg-gray-700/90 transition-colors">
                 {threadMembers.length}
@@ -351,7 +386,7 @@ export default function AdvancedChat({
               }`}
             >
               {renderThreadIcon(t, 'w-3.5 h-3.5')}
-              <span className="truncate max-w-[90px]">{t.name}</span>
+              <span className="truncate max-w-[90px]">{getThreadDisplayName(t)}</span>
               {t.unreadCount > 0 && (
                 <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[10px] font-bold rounded-full animate-pulse">
                   {t.unreadCount}
@@ -497,7 +532,7 @@ export default function AdvancedChat({
                 >
                   {!isMe && (
                     <span className="text-[10px] font-semibold text-gray-400 mb-1 ml-1 truncate max-w-[140px] select-none">
-                      {m.sender.name}
+                      {!isUuid(m.sender.name) ? m.sender.name : getParticipantMeta(m.sender.identity).name}
                     </span>
                   )}
                   <div className="relative group/bubble flex items-center">

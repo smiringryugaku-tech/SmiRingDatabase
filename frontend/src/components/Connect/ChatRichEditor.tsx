@@ -1,7 +1,6 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import { Extension, wrappingInputRule } from '@tiptap/core';
 import {
   Bold,
   Italic,
@@ -28,29 +27,6 @@ export const chatContentStyles =
   'prose-li:my-0.5 ' +
   'prose-code:bg-gray-800/90 prose-code:text-indigo-300 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[11px] prose-code:font-mono prose-code:before:content-none prose-code:after:content-none';
 
-function parseNumber(str: string): number {
-  const half = str.replace(/[０-９]/g, (s) =>
-    String.fromCharCode(s.charCodeAt(0) - 0xfee0),
-  );
-  return parseInt(half, 10) || 1;
-}
-
-// Custom input rule for ordered lists: supports both half-width and full-width numbers/dots/spaces
-const JapaneseOrderedListInputRule = Extension.create({
-  name: 'japaneseOrderedListInputRule',
-  addInputRules() {
-    return [
-      wrappingInputRule({
-        find: /^([0-9０-９]+)[.．][\s\u3000]$/,
-        type: this.editor.schema.nodes.orderedList,
-        getAttributes: (match) => ({ start: parseNumber(match[1]) }),
-        joinPredicate: (match, node) =>
-          node.childCount + node.attrs.start === parseNumber(match[1]),
-      }),
-    ];
-  },
-});
-
 export default function ChatRichEditor({
   onSend,
   placeholder = 'メッセージを送信...',
@@ -71,7 +47,6 @@ export default function ChatRichEditor({
       Placeholder.configure({
         placeholder,
       }),
-      JapaneseOrderedListInputRule,
     ],
     editorProps: {
       attributes: {
@@ -83,14 +58,24 @@ export default function ChatRichEditor({
           return false;
         }
 
-        // Shift + Enter handling: if inside a list, split the item to create the next bullet/number
+        // Shift + Enter handling:
+        // Inside lists: split list item, or lift out if current item is empty.
+        // In normal paragraphs: split block so each line is an independent paragraph block,
+        // allowing bullet lists or markdown rules ('- ', '1. ') to apply to that line alone.
         if (event.key === 'Enter' && event.shiftKey) {
+          event.preventDefault();
           if (editor.isActive('bulletList') || editor.isActive('orderedList')) {
-            event.preventDefault();
-            editor.commands.splitListItem('listItem');
-            return true;
+            const { $from } = editor.state.selection;
+            const isItemEmpty = $from.parent.textContent.length === 0;
+            if (isItemEmpty) {
+              editor.commands.liftListItem('listItem');
+            } else {
+              editor.commands.splitListItem('listItem');
+            }
+          } else {
+            editor.commands.splitBlock();
           }
-          return false;
+          return true;
         }
 
         // Enter without shift sends message

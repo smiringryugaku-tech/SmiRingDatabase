@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParticipants, useRoomContext } from '@livekit/components-react';
 import { RoomEvent } from 'livekit-client';
 import { apiClient } from '../lib/apiClient';
@@ -39,26 +39,70 @@ export function useAdvancedChat({ roomId, selfIdentity }: UseAdvancedChatOptions
   const [activeThreadId, setActiveThreadId] = useState<string>('everyone');
   const [lastNotificationMessage, setLastNotificationMessage] = useState<ChatMessage | null>(null);
 
-  // Helper to resolve participant name/avatar by identity (for UI display only —
-  // never used to determine sender identity or thread membership).
+  // Cache for participant display names & avatars learned from live participants or historical chat messages
+  const knownParticipantsRef = useRef<Record<string, { name: string; avatarUrl: string | null }>>({});
+
+  // Helper to test if a string is a raw UUID
+  const isUuid = useCallback((str: string) => {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+  }, []);
+
+  // Helper to resolve participant name/avatar by identity with fallback to historical message sender cache
   const getParticipantInfo = useCallback(
     (identity: string) => {
+      // 1. Check live participants in the room
       const p = participants.find((part) => part.identity === identity);
-      if (!p) return { name: identity, avatarUrl: null };
-      let avatarUrl: string | null = null;
-      if (p.metadata) {
-        try {
-          const parsed = JSON.parse(p.metadata);
-          avatarUrl = parsed.avatar_url || null;
-        } catch {}
+      if (p) {
+        let avatarUrl: string | null = null;
+        if (p.metadata) {
+          try {
+            const parsed = JSON.parse(p.metadata);
+            avatarUrl = parsed.avatar_url || null;
+          } catch {}
+        }
+        const nameCandidate = p.name?.trim();
+        if (nameCandidate && !isUuid(nameCandidate)) {
+          knownParticipantsRef.current[identity] = { name: nameCandidate, avatarUrl };
+          return { name: nameCandidate, avatarUrl };
+        }
       }
+
+      // 2. Check cached participant info from chat message senders
+      const cached = knownParticipantsRef.current[identity];
+      if (cached && cached.name && !isUuid(cached.name)) {
+        return cached;
+      }
+
+      // 3. Fallback: never show raw UUID to users
+      const safeName = isUuid(identity) ? '参加者' : identity;
       return {
-        name: p.name || p.identity || identity,
-        avatarUrl,
+        name: safeName,
+        avatarUrl: null,
       };
     },
-    [participants],
+    [participants, isUuid],
   );
+
+  // Auto-refresh thread names when LiveKit participants update (e.g. after late-join connect)
+  useEffect(() => {
+    if (participants.length === 0) return;
+
+    setThreads((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        if (t.isEveryone || t.participantIdentities.length === 0) return t;
+        const resolvedNames = t.participantIdentities
+          .map((id) => getParticipantInfo(id).name)
+          .join(', ');
+        if (resolvedNames && resolvedNames !== t.name) {
+          changed = true;
+          return { ...t, name: resolvedNames };
+        }
+        return t;
+      });
+      return changed ? next : prev;
+    });
+  }, [participants, getParticipantInfo]);
 
   const getThreadIdForMembers = useCallback(
     (memberIdentities: string[]) => getCanonicalThreadId([...memberIdentities, selfIdentity]),
@@ -103,14 +147,29 @@ export function useAdvancedChat({ roomId, selfIdentity }: UseAdvancedChatOptions
       const isEveryone = msg.threadId === 'everyone';
       const notify = opts?.notify !== false;
 
+      // Learn and cache sender's display name and avatar from message
+      if (msg.sender && msg.sender.name && !isUuid(msg.sender.name)) {
+        knownParticipantsRef.current[msg.sender.identity] = {
+          name: msg.sender.name,
+          avatarUrl: msg.sender.avatarUrl || null,
+        };
+      }
+
       setThreads((prev) => {
         const existing = prev.find((t) => t.id === msg.threadId);
         const isCurrentlyActive = activeThreadId === msg.threadId;
 
         let targetThread: ChatThread;
         if (existing) {
+          // If existing thread name was a fallback like '参加者' or had unresolved IDs, re-derive with new knowledge
+          const currentResolvedName =
+            !existing.isEveryone && existing.participantIdentities.length > 0
+              ? existing.participantIdentities.map((id) => getParticipantInfo(id).name).join(', ')
+              : existing.name;
+
           targetThread = {
             ...existing,
+            name: currentResolvedName || existing.name,
             lastMessage: msg,
             unreadCount: isCurrentlyActive || !notify ? existing.unreadCount : existing.unreadCount + 1,
           };
@@ -153,7 +212,7 @@ export function useAdvancedChat({ roomId, selfIdentity }: UseAdvancedChatOptions
         setLastNotificationMessage(msg);
       }
     },
-    [activeThreadId, selfIdentity, getParticipantInfo],
+    [activeThreadId, selfIdentity, getParticipantInfo, isUuid],
   );
 
   // Load persisted chat history for this room on mount (server-authoritative, survives
@@ -169,6 +228,18 @@ export function useAdvancedChat({ roomId, selfIdentity }: UseAdvancedChatOptions
         if (!res.ok || cancelled) return;
         const body = await res.json();
         const history: ChatMessage[] = body.messages || [];
+
+        // Pre-populate knownParticipantsRef from all messages in history before ingesting,
+        // so threads created from early messages immediately resolve sender display names
+        history.forEach((msg) => {
+          if (msg.sender && msg.sender.name && !isUuid(msg.sender.name)) {
+            knownParticipantsRef.current[msg.sender.identity] = {
+              name: msg.sender.name,
+              avatarUrl: msg.sender.avatarUrl || null,
+            };
+          }
+        });
+
         history.forEach((msg) => ingestMessage(msg, { notify: false }));
       } catch (e) {
         console.error('[AdvancedChat] Failed to load chat history:', e);
@@ -283,5 +354,7 @@ export function useAdvancedChat({ roomId, selfIdentity }: UseAdvancedChatOptions
     markThreadAsRead,
     totalUnreadCount,
     lastNotificationMessage,
+    getParticipantInfo,
+    isUuid,
   };
 }
