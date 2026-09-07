@@ -242,10 +242,22 @@ function reportTimelineFidelity(segments: (TrackSegment & { startedAt?: number }
     const ended = endedAtBySegment.get(segmentKey(segment.trackId, segment.segmentIndex ?? 0));
     const frames = segment.frameTimesSec ?? [];
 
+    // `gapSum` is what separates the two ways a file can hold less than its egress ran for,
+    // which need opposite handling:
+    //   missing large, gapSum large  -> the pauses are still in the timeline. Content stays
+    //                                   aligned with wall clock; the tile just freezes.
+    //   missing large, gapSum ~0     -> the pauses were closed up. Everything after one plays
+    //                                   early, and the error compounds with each pause.
     let maxGapSec = 0;
     let maxGapAtSec = 0;
+    let gapSumSec = 0;
+    let gapCount = 0;
     for (let i = 1; i < frames.length; i++) {
       const gap = frames[i] - frames[i - 1];
+      if (gap > 0.5) {
+        gapSumSec += gap;
+        gapCount++;
+      }
       if (gap > maxGapSec) {
         maxGapSec = gap;
         maxGapAtSec = frames[i - 1];
@@ -262,7 +274,11 @@ function reportTimelineFidelity(segments: (TrackSegment & { startedAt?: number }
       wallSec === undefined ? 'missing ?' : `missing ${(wallSec - mediaSec).toFixed(1)}s`,
     ];
     if (frames.length) {
-      parts.push(`frames ${frames.length}`, `firstPts ${frames[0].toFixed(2)}s`);
+      parts.push(
+        `frames ${frames.length}`,
+        `pts ${frames[0].toFixed(2)}-${frames[frames.length - 1].toFixed(2)}s`,
+        `gaps ${gapCount}/${gapSumSec.toFixed(1)}s`,
+      );
       if (maxGapSec > 0.5) parts.push(`maxGap ${maxGapSec.toFixed(1)}s@${maxGapAtSec.toFixed(1)}s`);
     }
     console.log(`[Compositor]   ${parts.join(' | ')}`);
