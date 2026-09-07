@@ -12,6 +12,8 @@ interface Recording {
   durationSeconds: number | null;
   createdAt: string;
   url: string | null;
+  /** 0-99 while compositing; null until the job reports its first step. */
+  progress: number | null;
 }
 
 export default function RecordingPlayerPage() {
@@ -121,7 +123,11 @@ export default function RecordingPlayerPage() {
 
         {recording && !recording.url && (
           <div className="px-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-semibold text-gray-600">
-            この録画はまだ再生できません（ステータス: {recording.status}）。
+            {recording.status === 'failed'
+              ? 'この録画は合成に失敗したため再生できません。'
+              : recording.status === 'recording'
+                ? 'この録画はまだ録画中です。'
+                : `準備中です${recording.progress != null ? `（${recording.progress}%）` : ''}。完了するまでお待ちください。`}
           </div>
         )}
       </div>

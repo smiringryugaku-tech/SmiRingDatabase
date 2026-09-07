@@ -333,8 +333,14 @@ export async function renderSegments(
   segments: LayoutSegment[],
   avatarPaths: Map<string, string>,
   workDir: string,
+  onProgress?: (fraction: number) => void,
 ): Promise<string[]> {
   const paths: string[] = [];
+  // Progress is tracked by segment duration rather than count, since a run is typically a
+  // handful of long segments among many short ones and counting them jumps unevenly.
+  const totalMs = segments.reduce((sum, s) => sum + (s.endMs - s.startMs), 0);
+  let doneMs = 0;
+
   // Rendered one at a time: each ffmpeg run already uses every core it can, and a long call
   // holds far too many decoders open to run several of these side by side.
   for (const [index, segment] of segments.entries()) {
@@ -345,6 +351,8 @@ export async function renderSegments(
     );
     await renderSegment(segment, avatarPaths, path);
     paths.push(path);
+    doneMs += segment.endMs - segment.startMs;
+    onProgress?.(totalMs > 0 ? doneMs / totalMs : 1);
   }
   return paths;
 }

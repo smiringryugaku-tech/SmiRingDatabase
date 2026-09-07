@@ -1131,6 +1131,7 @@ async function serializeRecording(row: {
   room_id: string;
   room_title: string | null;
   status: string;
+  progress: number | null;
   r2_key: string | null;
   thumbnail_key: string | null;
   duration_seconds: number | null;
@@ -1149,6 +1150,7 @@ async function serializeRecording(row: {
     roomId: row.room_id,
     roomTitle: row.room_title,
     status: row.status,
+    progress: row.progress,
     durationSeconds: row.duration_seconds,
     createdAt: row.created_at,
     completedAt: row.completed_at,
@@ -1157,7 +1159,8 @@ async function serializeRecording(row: {
   };
 }
 
-const RECORDING_COLUMNS = 'id, room_id, room_title, status, r2_key, thumbnail_key, duration_seconds, created_at, completed_at';
+const RECORDING_COLUMNS =
+  'id, room_id, room_title, status, progress, r2_key, thumbnail_key, duration_seconds, created_at, completed_at';
 
 // GET /api/connect/recordings -> every recording across every room, newest first.
 // (Recordings live in one app-wide list now, not one per room — see RecordingsListPage.)

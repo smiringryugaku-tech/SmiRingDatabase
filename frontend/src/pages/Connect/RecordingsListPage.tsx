@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Film, Loader2, Play, Trash2, Video } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
@@ -12,6 +12,8 @@ interface Recording {
   durationSeconds: number | null;
   createdAt: string;
   thumbnailUrl: string | null;
+  /** 0-99 while compositing; null until the job reports its first step. */
+  progress: number | null;
 }
 
 function formatDuration(seconds: number | null): string {
@@ -22,10 +24,14 @@ function formatDuration(seconds: number | null): string {
 
 const STATUS_LABEL: Record<Recording['status'], string> = {
   recording: '録画中',
-  processing: '合成中',
+  processing: '準備中',
   completed: '',
   failed: '失敗',
 };
+
+// Compositing takes minutes on a long call, so the list refreshes itself while anything is
+// still being prepared rather than leaving a stalled-looking card until the page is reloaded.
+const PROGRESS_POLL_MS = 5000;
 
 export default function RecordingsListPage() {
   const navigate = useNavigate();
@@ -34,16 +40,29 @@ export default function RecordingsListPage() {
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const load = useCallback(
+    () =>
+      apiClient
+        .get('/api/connect/recordings')
+        .then(async (response) => {
+          if (!response.ok) throw new Error('録画一覧の取得に失敗しました');
+          const data = await response.json();
+          setRecordings(data.recordings ?? []);
+        })
+        .catch((e: any) => setError(e.message ?? '録画一覧の取得に失敗しました')),
+    [],
+  );
+
   useEffect(() => {
-    apiClient
-      .get('/api/connect/recordings')
-      .then(async (response) => {
-        if (!response.ok) throw new Error('録画一覧の取得に失敗しました');
-        const data = await response.json();
-        setRecordings(data.recordings ?? []);
-      })
-      .catch((e: any) => setError(e.message ?? '録画一覧の取得に失敗しました'));
-  }, []);
+    load();
+  }, [load]);
+
+  const isPreparing = recordings?.some((r) => r.status === 'recording' || r.status === 'processing') ?? false;
+  useEffect(() => {
+    if (!isPreparing) return;
+    const timer = setInterval(load, PROGRESS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [isPreparing, load]);
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -138,6 +157,19 @@ export default function RecordingsListPage() {
                       <div className="absolute top-2 right-2 px-2 py-1 bg-black/60 rounded-lg text-[10px] font-bold text-white flex items-center gap-1">
                         {recording.status === 'processing' && <Loader2 className="w-3 h-3 animate-spin" />}
                         {STATUS_LABEL[recording.status]}
+                        {recording.status === 'processing' && recording.progress != null && (
+                          <span className="tabular-nums">{recording.progress}%</span>
+                        )}
+                      </div>
+                    )}
+                    {recording.status === 'processing' && (
+                      <div className="absolute bottom-0 inset-x-0 h-1.5 bg-black/40">
+                        <div
+                          className="h-full bg-indigo-400 transition-[width] duration-700 ease-out"
+                          // Before the job reports anything there is still a visible sliver,
+                          // so the bar reads as "started" rather than as not running at all.
+                          style={{ width: `${Math.max(recording.progress ?? 0, 3)}%` }}
+                        />
                       </div>
                     )}
                   </div>

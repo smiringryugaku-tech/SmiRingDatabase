@@ -160,6 +160,7 @@ export async function collectTrackSegments(
   roomName: string,
   recordingId: string,
   workDir: string,
+  onProgress?: (fraction: number) => void,
 ): Promise<{ segments: TrackSegment[]; keys: string[]; recordingStartMs: number }> {
   // Scoped to this recording, so leftovers from another one in the same room can't be read
   // as part of it (see the backend's `buildTempRecordingKey`). The room-level fallback keeps
@@ -169,8 +170,14 @@ export async function collectTrackSegments(
   const keys = scopedKeys.length > 0 ? scopedKeys : await listKeys(BUCKET, `connect/recordings-tmp/${roomName}/`);
   const startTimes = await fetchTrackStartTimes(recordingId);
 
+  // Each file reports once it is downloaded and normalized. They run concurrently, so this
+  // counts completions rather than tracking any one file's own progress.
+  let filesDone = 0;
+  const fileFinished = () => onProgress?.(keys.length > 0 ? ++filesDone / keys.length : 1);
+
   const downloaded = await Promise.all(
     keys.map(async (key, index) => {
+     try {
       const parsed = parseKey(key);
       if (!parsed) {
         console.warn(`[Compositor] Skipping unrecognized key: ${key}`);
@@ -216,6 +223,10 @@ export async function collectTrackSegments(
       }
       const frameTimesSec = isVideo(parsed.source) ? await probeFrameTimesSec(path) : undefined;
       return { key, path, ...parsed, startedAt, durationMs, frameTimesSec, rawFrameTimesSec };
+     } finally {
+      // In the finally so a skipped or failed file still advances the bar.
+      fileFinished();
+     }
     }),
   );
 

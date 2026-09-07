@@ -10,6 +10,7 @@ import { concatSegments, extractThumbnail, mixAudio, muxFinal, renderSegments } 
 import { buildLayoutSegments } from './layout';
 import { BUCKET, deleteKeys, uploadFile } from './storage';
 import { supabase } from './supabase';
+import { PHASE_WEIGHTS, reportProgress } from './progress';
 import { collectPresenceIntervals, collectTrackSegments, recordingDurationMs } from './tracks';
 
 const ROOM_NAME = process.env.ROOM_NAME;
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
       ROOM_NAME,
       RECORDING_ID,
       workDir,
+      (fraction) => reportProgress(RECORDING_ID!, fraction * PHASE_WEIGHTS.collect),
     );
     if (tracks.length === 0) {
       // Nothing usable was recorded — an empty room, or every egress failed to upload.
@@ -53,12 +55,17 @@ async function main(): Promise<void> {
     console.log(`[Compositor] Resolved ${avatarPaths.size}/${identities.length} avatar(s)`);
 
     const layoutSegments = buildLayoutSegments(tracks, presence, totalMs, new Set(avatarPaths.keys()));
-    const videoPath = await concatSegments(await renderSegments(layoutSegments, avatarPaths, workDir), workDir);
+    const renderedPaths = await renderSegments(layoutSegments, avatarPaths, workDir, (fraction) =>
+      reportProgress(RECORDING_ID!, PHASE_WEIGHTS.collect + fraction * PHASE_WEIGHTS.render),
+    );
+    const videoPath = await concatSegments(renderedPaths, workDir);
     const audioPath = await mixAudio(tracks, workDir);
     const finalPath = await muxFinal(videoPath, audioPath, workDir);
+    await reportProgress(RECORDING_ID, PHASE_WEIGHTS.collect + PHASE_WEIGHTS.render + PHASE_WEIGHTS.finish * 0.5);
 
     const key = `connect/recordings/${ROOM_NAME}/${RECORDING_ID}.mp4`;
     await uploadFile(BUCKET, key, finalPath, 'video/mp4');
+    await reportProgress(RECORDING_ID, 1);
 
     // Best-effort: a missing thumbnail just falls back to a placeholder in the recordings
     // list, not worth failing an otherwise-successful recording over.
@@ -76,6 +83,7 @@ async function main(): Promise<void> {
       .from('connect_recordings')
       .update({
         status: 'completed',
+        progress: 100,
         r2_key: key,
         thumbnail_key: thumbnailKey,
         duration_seconds: Math.round(totalMs / 1000),
