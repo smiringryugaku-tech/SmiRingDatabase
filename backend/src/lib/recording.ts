@@ -123,18 +123,25 @@ function sanitizeKeyPart(value: string): string {
  * unpublishing it (only screen share unpublishes), so the same trackId lives for the whole
  * call across any number of off/on cycles.
  *
+ * Nested under the recording id, not just the room, because the compositor finds its inputs
+ * by listing this prefix: anything else left in the same folder — a previous recording whose
+ * cleanup didn't run, a crashed job's leftovers — would be picked up as part of *this*
+ * recording and, having no row of its own to date it, dumped at the very start of the
+ * timeline. Scoping the folder makes that impossible rather than merely unlikely.
+ *
  * Deliberately extension-less: the container depends on the codec the publisher negotiated
  * (opus -> .ogg, h264 -> .mp4, vp8 -> .webm) and LiveKit appends the right one. The
  * compositor therefore discovers files by listing this prefix instead of assuming a name.
  */
 export function buildTempRecordingKey(
   roomId: string,
+  recordingId: string,
   identity: string,
   source: TrackSource,
   trackId: string,
   segmentIndex: number,
 ): string {
-  return `${TEMP_RECORDING_PREFIX}${sanitizeKeyPart(roomId)}/${sanitizeKeyPart(identity)}__${sourceLabel(source)}__${sanitizeKeyPart(trackId)}__${segmentIndex}`;
+  return `${TEMP_RECORDING_PREFIX}${sanitizeKeyPart(roomId)}/${sanitizeKeyPart(recordingId)}/${sanitizeKeyPart(identity)}__${sourceLabel(source)}__${sanitizeKeyPart(trackId)}__${segmentIndex}`;
 }
 
 /**
@@ -215,7 +222,7 @@ export async function startTrackRecording(
   }
 
   try {
-    const key = buildTempRecordingKey(roomId, identity, source, trackId, segmentIndex);
+    const key = buildTempRecordingKey(roomId, recordingId, identity, source, trackId, segmentIndex);
     const egress = await egressClient.startTrackEgress(roomId, buildTrackEgressOutput(key), trackId);
     // Kept so this egress can be stopped by id. Searching `listEgress` by trackId instead
     // stops only the first match, which silently left duplicates running to the end of the

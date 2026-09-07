@@ -159,7 +159,12 @@ export async function collectTrackSegments(
   recordingId: string,
   workDir: string,
 ): Promise<{ segments: TrackSegment[]; keys: string[]; recordingStartMs: number }> {
-  const keys = await listKeys(BUCKET, `connect/recordings-tmp/${roomName}/`);
+  // Scoped to this recording, so leftovers from another one in the same room can't be read
+  // as part of it (see the backend's `buildTempRecordingKey`). The room-level fallback keeps
+  // a recording that started before the backend wrote to the scoped path compositable —
+  // safe either way, since a file with no row of its own is now skipped below.
+  const scopedKeys = await listKeys(BUCKET, `connect/recordings-tmp/${roomName}/${recordingId}/`);
+  const keys = scopedKeys.length > 0 ? scopedKeys : await listKeys(BUCKET, `connect/recordings-tmp/${roomName}/`);
   const startTimes = await fetchTrackStartTimes(recordingId);
 
   const downloaded = await Promise.all(
@@ -169,16 +174,15 @@ export async function collectTrackSegments(
         console.warn(`[Compositor] Skipping unrecognized key: ${key}`);
         return null;
       }
-      // Prefer the real start time; a missing row (shouldn't happen now that this is
-      // written synchronously when egress starts, but the backend's insert is best-effort
-      // — see startTrackRecording) still shouldn't cost someone their whole recording.
-      // Falling back to "started with the recording" places it at worst too early, never
-      // dropped — offset is re-based to the earliest known start right after this map.
+      // A file with no row can't be placed: its row is written before its egress is even
+      // started, so if it is missing, this file isn't part of this recording. It used to be
+      // included at offset 0 rather than dropped, on the theory that too early beat losing
+      // it — until a previous recording's leftovers landed in the folder and every one of
+      // them was stacked onto the start of the timeline, mixing another meeting into it.
       const startedAt = startTimes.get(segmentKey(parsed.trackId, parsed.segmentIndex));
       if (startedAt === undefined) {
-        console.warn(
-          `[Compositor] No recorded start time for track ${parsed.trackId} — including it at offset 0 instead of dropping it: ${key}`,
-        );
+        console.warn(`[Compositor] No recorded start time — skipping file not part of this recording: ${key}`);
+        return null;
       }
 
       const path = join(workDir, `${index}_${key.split('/').pop()}`);
