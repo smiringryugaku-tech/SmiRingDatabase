@@ -38,7 +38,10 @@ SmiRing Connect の録画を1本の動画に合成する Cloud Run Job。
 - 顔の選定は「その区間でカメラがONだった時間が長い順」。カメラOFFでも**その時点でルームにいれば**
   本人のプロフィールアバター画像を1タイルとして表示する
   (`basic_profile_info.avatar_id` → `gallery` から取得、`recording-compositor/src/avatars.ts`)。
-  アバター未設定の人はタイルなし。カメラON勢が定員(10 / 20)を優先的に埋め、余った枠だけアバター勢に回る
+  **アバター未設定の人・画像が読めなかった人には汎用の人型シルエット**を出す(フォントを必要と
+  しないよう`geq`で描画。コンテナは`node:22-slim`+ffmpegのみでフォントが入っていないため)。
+  サムネイル(webp)が読めない環境に備えて原本(jpg)へ自動フォールバックする。
+  カメラON勢が定員(10 / 20)を優先的に埋め、余った枠だけアイコン勢に回る
 - 在室は `connect_recording_participants`(`participant_joined` / `participant_left` webhookで
   backendが記録)から取る。トラックから推測しないのは、**マイクもカメラも切って入室した人は
   publishされたトラックが1つも無い**ため — それだと録画上まったく存在しないことになってしまう

@@ -14,6 +14,13 @@ const VIDEO_ARGS = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pi
 // Matches the live call UI's camera-off placeholder background (`--lk-bg2`).
 const ICON_TILE_BG = '#1a1a1a';
 
+// How far before a segment a tile starts decoding, so a sparse source (a screen share of a
+// window that isn't changing) still has its current frame in hand at the cut. Covers gaps up
+// to this long; past it the tile is black for the remainder of the gap, as before. Costs one
+// extra decode of this much video per tile per segment — the frames are dropped before the
+// rescale, so it is decode time only.
+const LOOKBACK_SEC = 15;
+
 // Long calls take a long time to mux; the Cloud Run Job's own task timeout is the real limit.
 const MAX_BUFFER = 32 * 1024 * 1024;
 
@@ -34,6 +41,56 @@ export async function extractThumbnail(videoPath: string, durationMs: number, ou
     '-q:v', '4',
     outputPath,
   ]);
+}
+
+/**
+ * Draws the stand-in avatar for someone with no profile photo: a head-and-shoulders
+ * silhouette on the same background the icon tile uses, so it sits flush in the tile.
+ *
+ * Drawn with `geq` (a per-pixel expression over a flat source) rather than `drawtext` with
+ * their initials, because text needs a font file and the runtime image is `node:22-slim`
+ * plus ffmpeg — no fonts are installed, and adding them to render one glyph isn't worth it.
+ * Shipping a PNG asset would work too; generating it keeps the image free of binary assets.
+ */
+export async function createPlaceholderAvatar(outputPath: string): Promise<void> {
+  const size = 256;
+  // Head: circle at (128, 96) r=46. Body: ellipse at (128, 250) r=(86, 100), of which only
+  // the top arc falls inside the frame, giving the shoulders. `+` acts as OR between them.
+  const inside =
+    `lte(pow((X-128)/46\\,2)+pow((Y-96)/46\\,2)\\,1)+lte(pow((X-128)/86\\,2)+pow((Y-250)/100\\,2)\\,1)`;
+  const expr = `if(gt(${inside}\\,0)\\,138\\,26)`;
+
+  await run('ffmpeg', [
+    '-y',
+    '-f', 'lavfi',
+    '-i', `color=c=black:s=${size}x${size}`,
+    '-vf', `geq=r='${expr}':g='${expr}':b='${expr}'`,
+    '-frames:v', '1',
+    outputPath,
+  ]);
+}
+
+/**
+ * Whether ffmpeg can actually decode this image.
+ *
+ * Avatars come out of the gallery in whatever format it stored — thumbnails are WebP — and
+ * the container's ffmpeg is whatever Debian ships. Rather than assume a codec is available,
+ * the caller probes each candidate file and moves on to the next if it can't be read.
+ */
+export async function canDecodeImage(path: string): Promise<boolean> {
+  try {
+    const stdout = await run('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      path,
+    ]);
+    const [width, height] = stdout.trim().split('\n').map(Number);
+    return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0;
+  } catch {
+    return false;
+  }
 }
 
 export async function probeDurationMs(path: string): Promise<number> {
@@ -80,10 +137,24 @@ async function renderSegment(segment: LayoutSegment, avatarPaths: Map<string, st
       const clipSec = (clipEndMs - clipStartMs) / 1000;
       const padStartSec = (clipStartMs - segment.startMs) / 1000;
 
-      args.push('-ss', seekSec.toFixed(3), '-t', clipSec.toFixed(3), '-i', track.path);
+      // Start decoding before the stretch we want and drop the surplus in the filter graph,
+      // rather than seeking straight to it. `-ss` seeks accurately, which means it discards
+      // frames whose PTS is earlier than the target — including the one still on screen. A
+      // screen share of a static window sends frames seconds apart, so seeking into one of
+      // those gaps yielded no frame at all and the black canvas showed through until the next
+      // one arrived: a visible flash at every segment boundary. Decoding from earlier keeps
+      // that frame, `fps` holds it across the gap, and `trim` cuts back to the real start.
+      const seekFromSec = Math.max(0, seekSec - LOOKBACK_SEC);
+      const lookbackSec = seekSec - seekFromSec;
+
+      args.push('-ss', seekFromSec.toFixed(3), '-t', (lookbackSec + clipSec).toFixed(3), '-i', track.path);
       filters.push(
-        `[${input}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${FPS},` +
+        // `fps` before `trim` is what makes this work — it fills the gap with repeats of the
+        // held frame so `trim` always has one to keep. Both run before `scale` so the repeats
+        // cost a frame reference each rather than a rescale.
+        `[${input}:v]fps=${FPS},trim=start=${lookbackSec.toFixed(3)},setpts=PTS-STARTPTS,` +
+          `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,` +
           `tpad=start_duration=${padStartSec.toFixed(3)}:start_mode=add:color=black[t${input}]`,
       );
     } else {

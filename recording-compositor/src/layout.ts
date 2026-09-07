@@ -111,8 +111,9 @@ function collectParticipants(
  * always wins a slot over an icon; past that, whoever's had the tile longest wins, and ties
  * fall back to join order so the grid stays in a stable, predictable arrangement.
  *
- * `iconEligible` gates who can occupy an icon slot at all — an identity with no resolvable
- * avatar is left out entirely rather than reserving a tile with nothing to draw in it.
+ * `iconEligible` gates who can occupy an icon slot at all: every real participant, since one
+ * without a profile photo still gets the generic silhouette (see `fetchAvatarPaths`). What it
+ * excludes is identities that aren't people — LiveKit's own egress bots joining the room.
  */
 function pickParticipants(
   tracks: TrackSegment[],
@@ -132,6 +133,37 @@ function pickParticipants(
   return [...withCamera.slice(0, limit), ...withoutCamera.slice(0, Math.max(0, limit - withCamera.length))].sort(
     (a, b) => a.firstOffsetMs - b.firstOffsetMs,
   );
+}
+
+/** What a segment actually renders, so two that draw the same thing can be spotted. */
+function layoutFingerprint(segment: LayoutSegment): string {
+  return segment.tiles
+    .map((t) =>
+      [t.kind === 'video' ? `v:${t.track.key}` : `i:${t.identity}`, t.x, t.y, t.width, t.height].join(':'),
+    )
+    .join('|');
+}
+
+/**
+ * Joins consecutive segments that draw exactly the same tiles in the same places.
+ *
+ * Every boundary costs a seek into each tile's source and a fresh GOP, and a cut landing in a
+ * sparse source's frame gap used to flash black (see `renderSegment`'s note on lookback), so
+ * a boundary that changes nothing is pure downside. They arise easily: anything that moves a
+ * track or presence edge — someone joining while the grid is already full, a camera coming
+ * back before the layout had room to change — lands on this path.
+ */
+function mergeIdenticalSegments(segments: LayoutSegment[]): LayoutSegment[] {
+  const merged: LayoutSegment[] = [];
+  for (const segment of segments) {
+    const previous = merged[merged.length - 1];
+    if (previous && previous.endMs === segment.startMs && layoutFingerprint(previous) === layoutFingerprint(segment)) {
+      previous.endMs = segment.endMs;
+      continue;
+    }
+    merged.push(segment);
+  }
+  return merged;
 }
 
 function toTile(participant: ParticipantCandidate, box: TileBox): Tile {
@@ -223,5 +255,5 @@ export function buildLayoutSegments(
     }
   }
 
-  return segments;
+  return mergeIdenticalSegments(segments);
 }

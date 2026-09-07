@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { AccessToken, RoomServiceClient, WebhookReceiver, DataPacket_Kind } from 'livekit-server-sdk';
+import { ParticipantInfo_Kind } from '@livekit/protocol';
 import { PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import multer from 'multer';
 import sharp from 'sharp';
@@ -972,7 +973,11 @@ router.post(
         return res.status(409).json({ error: 'このルームは既に録画中です' });
       }
 
-      const participants = await roomService.listParticipants(roomId);
+      // Excludes any leftover egress bot from a just-ended recording of this same room —
+      // see the webhook handler's comment on `ParticipantInfo_Kind`.
+      const participants = (await roomService.listParticipants(roomId)).filter(
+        (p) => p.kind === ParticipantInfo_Kind.STANDARD,
+      );
       if (participants.length === 0) {
         return res.status(400).json({ error: '参加者がいないため録画を開始できません' });
       }
@@ -1304,10 +1309,16 @@ router.post('/api/connect/webhook', async (req: Request, res: Response) => {
     // Presence is tracked independently of tracks: someone who joins with both camera and mic
     // off publishes nothing at all, and without this they would be entirely absent from the
     // recording rather than showing as an avatar tile for the time they were actually here.
+    //
+    // Egress itself joins the room as a hidden participant to subscribe to tracks (identity
+    // like `EG_xxxxx`, `kind: EGRESS`) and fires these same events — `kind` is what tells it
+    // apart from a real person; identity alone can't (it isn't a UUID, but nothing enforces
+    // that a real one couldn't look this way too).
     if (
       (event.event === 'participant_joined' || event.event === 'participant_left') &&
       event.room?.name &&
-      event.participant
+      event.participant &&
+      event.participant.kind === ParticipantInfo_Kind.STANDARD
     ) {
       const roomId = event.room.name;
       const identity = event.participant.identity;
