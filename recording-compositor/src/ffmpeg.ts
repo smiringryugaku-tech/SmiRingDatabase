@@ -14,12 +14,26 @@ const VIDEO_ARGS = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pi
 // Matches the live call UI's camera-off placeholder background (`--lk-bg2`).
 const ICON_TILE_BG = '#1a1a1a';
 
-// How far before a segment a tile starts decoding, so a sparse source (a screen share of a
-// window that isn't changing) still has its current frame in hand at the cut. Covers gaps up
-// to this long; past it the tile is black for the remainder of the gap, as before. Costs one
-// extra decode of this much video per tile per segment — the frames are dropped before the
-// rescale, so it is decode time only.
+// Fallback for when a file's frame times couldn't be read: how far before the cut to start
+// decoding so a sparse source still has its current frame in hand. Normally unused — the
+// exact frame time is known (see `probeFrameTimesSec`).
 const LOOKBACK_SEC = 15;
+
+/** Where to start decoding so the frame on screen at `seekSec` is actually included. */
+function decodeStartSec(seekSec: number, frameTimesSec: number[] | undefined): number {
+  if (!frameTimesSec?.length) return Math.max(0, seekSec - LOOKBACK_SEC);
+
+  // The last frame at or before the cut is the one being displayed there. Nudged back a hair
+  // because `-ss` keeps frames at or after the target and floating point could drop the very
+  // frame we are aiming for; the decoder starts from the preceding keyframe either way, so
+  // this costs nothing.
+  let held = 0;
+  for (const time of frameTimesSec) {
+    if (time > seekSec) break;
+    held = time;
+  }
+  return Math.max(0, held - 0.05);
+}
 
 // Long calls take a long time to mux; the Cloud Run Job's own task timeout is the real limit.
 const MAX_BUFFER = 32 * 1024 * 1024;
@@ -93,6 +107,32 @@ export async function canDecodeImage(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Presentation times of every video frame in a file, sorted.
+ *
+ * Read from the container index, so it costs no decoding — tens of milliseconds even for a
+ * long call. `renderSegment` uses it to seek to a frame that actually exists instead of
+ * guessing how far back to look. Packets come back in decode order, hence the sort.
+ */
+export async function probeFrameTimesSec(path: string): Promise<number[]> {
+  try {
+    const stdout = await run('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'packet=pts_time',
+      '-of', 'csv=p=0',
+      path,
+    ]);
+    return stdout
+      .split('\n')
+      .map((line) => Number.parseFloat(line))
+      .filter((t) => Number.isFinite(t))
+      .sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
+}
+
 export async function probeDurationMs(path: string): Promise<number> {
   try {
     const stdout = await run('ffprobe', [
@@ -137,14 +177,14 @@ async function renderSegment(segment: LayoutSegment, avatarPaths: Map<string, st
       const clipSec = (clipEndMs - clipStartMs) / 1000;
       const padStartSec = (clipStartMs - segment.startMs) / 1000;
 
-      // Start decoding before the stretch we want and drop the surplus in the filter graph,
-      // rather than seeking straight to it. `-ss` seeks accurately, which means it discards
-      // frames whose PTS is earlier than the target — including the one still on screen. A
-      // screen share of a static window sends frames seconds apart, so seeking into one of
-      // those gaps yielded no frame at all and the black canvas showed through until the next
-      // one arrived: a visible flash at every segment boundary. Decoding from earlier keeps
-      // that frame, `fps` holds it across the gap, and `trim` cuts back to the real start.
-      const seekFromSec = Math.max(0, seekSec - LOOKBACK_SEC);
+      // Start decoding at the frame that is actually on screen at the cut, then drop the
+      // surplus in the filter graph, rather than seeking straight to the cut. `-ss` seeks
+      // accurately, which means it discards frames whose PTS is earlier than the target —
+      // including the one still being displayed. A publisher that isn't sending (a static
+      // screen share, a camera whose tab is in the background) leaves frames seconds apart,
+      // so seeking into one of those gaps yielded no frame at all and the black canvas showed
+      // through: a flash at every segment boundary.
+      const seekFromSec = decodeStartSec(seekSec, track.frameTimesSec);
       const lookbackSec = seekSec - seekFromSec;
 
       args.push('-ss', seekFromSec.toFixed(3), '-t', (lookbackSec + clipSec).toFixed(3), '-i', track.path);
@@ -152,10 +192,18 @@ async function renderSegment(segment: LayoutSegment, avatarPaths: Map<string, st
         // `fps` before `trim` is what makes this work — it fills the gap with repeats of the
         // held frame so `trim` always has one to keep. Both run before `scale` so the repeats
         // cost a frame reference each rather than a rescale.
+        //
+        // `stop_mode=clone` covers the other end: a publisher can stop sending long before
+        // the egress is stopped, so a file's frames can run out well before the duration it
+        // reports — and this segment's boundaries were computed from that duration. Holding
+        // the last frame keeps the tile looking like the frozen video it is, where before the
+        // stream simply ended and `overlay`'s `eof_action=pass` let the black canvas through
+        // for the rest of the segment.
         `[${input}:v]fps=${FPS},trim=start=${lookbackSec.toFixed(3)},setpts=PTS-STARTPTS,` +
           `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
           `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,` +
-          `tpad=start_duration=${padStartSec.toFixed(3)}:start_mode=add:color=black[t${input}]`,
+          `tpad=start_duration=${padStartSec.toFixed(3)}:start_mode=add:color=black:` +
+          `stop_duration=${durationSec.toFixed(3)}:stop_mode=clone[t${input}]`,
       );
     } else {
       const avatarPath = avatarPaths.get(tile.identity);

@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { probeDurationMs } from './ffmpeg';
+import { probeDurationMs, probeFrameTimesSec } from './ffmpeg';
 import { BUCKET, downloadTo, listKeys } from './storage';
 import { supabase } from './supabase';
 
@@ -15,6 +15,11 @@ export interface TrackSegment {
   /** Milliseconds from the start of the recording to where this file's content begins. */
   offsetMs: number;
   durationMs: number;
+  /**
+   * Presentation times of this file's video frames, for seeking to one that exists rather
+   * than into a gap. Video tracks only; see `renderSegment`.
+   */
+  frameTimesSec?: number[];
 }
 
 export const isVideo = (s: TrackSourceLabel) => s === 'camera' || s === 'screen_share';
@@ -147,7 +152,9 @@ export async function collectTrackSegments(
         console.warn(`[Compositor] Unreadable or empty file, skipping: ${key}`);
         return null;
       }
-      return { key, path, ...parsed, startedAt, durationMs };
+      // Only video is ever seeked into per segment, and reading the index costs nothing.
+      const frameTimesSec = isVideo(parsed.source) ? await probeFrameTimesSec(path) : undefined;
+      return { key, path, ...parsed, startedAt, durationMs, frameTimesSec };
     }),
   );
 
