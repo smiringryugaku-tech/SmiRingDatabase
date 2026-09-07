@@ -123,17 +123,77 @@ export async function canDecodeImage(path: string): Promise<boolean> {
  * Positions are preserved exactly — `fps` duplicates in place rather than resampling.
  */
 export async function normalizeVideo(inputPath: string, outputPath: string): Promise<void> {
+  const { width, height } = await probeBestResolution(inputPath);
   await run('ffmpeg', [
     '-y',
     // Rebuilds timestamps from scratch, which is what makes the duplicate DTS harmless.
     '-fflags', '+genpts',
     '-i', inputPath,
-    '-vf', `fps=${FPS}`,
+    // The size has to be stated. Left to itself ffmpeg initialises the encoder from the
+    // first frame and squeezes everything after into that — and the first frame of a
+    // simulcast track is the lowest layer, from before the publisher has ramped up, so a
+    // whole call's 720p was being flattened to 320x180. Frames that share the track's
+    // aspect ratio (every simulcast layer does) fill this exactly, so nothing is padded.
+    '-vf',
+      `fps=${FPS},scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
     '-an',
     '-r', String(FPS),
     ...VIDEO_ARGS.filter((arg) => arg !== '-r' && arg !== String(FPS)),
     outputPath,
   ]);
+}
+
+/**
+ * The size to normalize a track to: the largest resolution it actually contains, never
+ * beyond the canvas.
+ *
+ * A simulcast track carries several layers and switches between them as the publisher's
+ * quality changes, so no single frame's dimensions describe the file. Resolution can only
+ * change at a keyframe, so reading just those is enough and costs no decoding. Capped at the
+ * canvas because nothing larger can ever be shown, and never upscaled past what was recorded.
+ */
+async function probeBestResolution(path: string): Promise<{ width: number; height: number }> {
+  let best = { width: 0, height: 0 };
+  try {
+    const stdout = await run('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-skip_frame', 'nokey',
+      '-show_entries', 'frame=width,height',
+      '-of', 'csv=p=0',
+      path,
+    ]);
+    for (const line of stdout.split('\n')) {
+      const [width, height] = line.split(',').map(Number);
+      if (Number.isFinite(width) && Number.isFinite(height) && width * height > best.width * best.height) {
+        best = { width, height };
+      }
+    }
+  } catch {
+    // Fall through to the container's own dimensions.
+  }
+
+  if (!best.width || !best.height) {
+    try {
+      const stdout = await run('ffprobe', [
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'stream=width,height',
+        '-of', 'csv=p=0',
+        path,
+      ]);
+      const [width, height] = stdout.trim().split(',').map(Number);
+      if (Number.isFinite(width) && Number.isFinite(height)) best = { width, height };
+    } catch {
+      // Nothing readable — fall back to the canvas and let the render sort it out.
+    }
+  }
+  if (!best.width || !best.height) return { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
+
+  const scale = Math.min(1, CANVAS_WIDTH / best.width, CANVAS_HEIGHT / best.height);
+  const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+  return { width: even(best.width * scale), height: even(best.height * scale) };
 }
 
 /**
