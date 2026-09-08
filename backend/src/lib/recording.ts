@@ -24,6 +24,30 @@ const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
 const TEMP_RECORDING_PREFIX = 'connect/recordings-tmp/';
 const STALE_TEMP_RECORDING_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * How many cameras a single recording will capture at once. Unset falls back to 20.
+ *
+ * Every recorded track is its own egress job — a separate handler process on the Hetzner
+ * box, holding its own connection to the SFU — and measurement on that box put a video
+ * track at roughly 0.06-0.11 of a core, a microphone at about half that. Crucially the
+ * cost tracks the *number* of tracks and not their bitrate (track egress copies the codec
+ * rather than re-encoding, so a 6 Mbps screen share and a 720p camera cost about the same),
+ * which makes capping the count the only lever that scales with headcount.
+ *
+ * 20 is what the compositor can actually draw (`MAX_FACES_IN_GRID` in
+ * recording-compositor/src/layout.ts) and what the live grid shows before it starts
+ * scrolling (`MAX_LIVE_TILES`), so the cap can never cost the finished video a face it had
+ * room for. Anyone past it is still in the recording: presence is tracked independently of
+ * tracks (see `openParticipantPresence`), and the compositor gives a participant with no
+ * camera their avatar tile — the same path someone who simply had their camera off takes.
+ *
+ * Microphones and screen shares are deliberately not capped. A dropped mic loses somebody's
+ * voice for the whole call, and the screen share is usually the reason the call is being
+ * recorded at all.
+ */
+const MAX_RECORDED_CAMERAS = Number(process.env.MAX_RECORDED_CAMERAS) || 20;
+// const MAX_RECORDED_CAMERAS = 1;
+
 // The Egress API is HTTP, but LIVEKIT_URL is the wss:// URL the clients use.
 const egressClient =
   LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET
@@ -170,6 +194,29 @@ function buildTrackEgressOutput(key: string): DirectFileOutput {
 }
 
 /**
+ * How many cameras this recording currently has an egress running for.
+ *
+ * Counted from the open rows rather than kept as a separate tally, because those rows are
+ * already the source of truth for "is this being recorded right now" (`syncCameraRecordings`
+ * reads the same ones), so this cannot drift away from what is actually running.
+ */
+async function openCameraCount(recordingId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('connect_recording_tracks')
+    .select('id', { count: 'exact', head: true })
+    .eq('recording_id', recordingId)
+    .eq('source', 'camera')
+    .is('ended_at', null);
+  if (error) {
+    // Recording one camera too many is a far better failure than silently dropping one
+    // because a count query happened to fail.
+    console.error(`[Recording] Failed to count open cameras for ${recordingId}:`, error);
+    return 0;
+  }
+  return count ?? 0;
+}
+
+/**
  * Starts recording one published track. Returns false if LiveKit rejected it.
  *
  * Also records the moment recording actually began for this track in our own DB
@@ -194,6 +241,25 @@ export async function startTrackRecording(
   trackId: string,
 ): Promise<boolean> {
   if (!egressClient) return false;
+
+  // Cameras are capped, mics and screen shares are not (see `MAX_RECORDED_CAMERAS`). This
+  // check covers the two paths that add one camera at a time: `syncCameraRecordings`, which
+  // awaits each start in turn, and the `track_published` webhook. It cannot catch the batch
+  // fired when a recording starts — every caller in that `Promise.all` reads the same count
+  // before any of them has inserted — so `startRecordingForParticipants` trims its own list
+  // up front instead.
+  //
+  // Two webhooks arriving together can still both pass and land on cap + 1. That is left
+  // alone: one extra camera costs a fraction of a core, while the failure this function
+  // really has to prevent — several egresses on one track — is still held by the partial
+  // unique index on the insert below.
+  if (source === TrackSource.CAMERA && (await openCameraCount(recordingId)) >= MAX_RECORDED_CAMERAS) {
+    console.log(
+      `[Recording] Not starting camera ${trackId} for ${identity}: ` +
+        `already recording ${MAX_RECORDED_CAMERAS} cameras — they will show as an avatar tile`,
+    );
+    return false;
+  }
 
   // The row is claimed *before* the egress is started, because inserting it is what makes
   // this safe to call concurrently: a partial unique index allows only one un-ended row per
@@ -324,15 +390,37 @@ function isMutedCamera(track: { source: TrackSource; muted: boolean }): boolean 
  * A muted *microphone* is not skipped: LiveKit leaves the mic track running and merely
  * disables it (`stopMicTrackOnMute` is false by default), so silence keeps flowing and the
  * file's timeline stays honest.
+ *
+ * Cameras past `MAX_RECORDED_CAMERAS` are dropped here rather than by `startTrackRecording`'s
+ * own cap, which this one batch is the only thing that can slip past — see below.
  */
 export async function startRecordingForParticipants(
   roomId: string,
   recordingId: string,
   participants: ParticipantInfo[],
 ): Promise<{ attempted: number; started: number }> {
-  const startable = participants.flatMap((participant) =>
+  const candidates = participants.flatMap((participant) =>
     participant.tracks.filter((track) => !isMutedCamera(track)).map((track) => ({ participant, track })),
   );
+
+  // The cap has to be applied to the list, not per start: these all go out in one
+  // `Promise.all`, so every call would read the same "nothing recording yet" count and every
+  // one would be let through. Ordering by join time decides it deterministically — whoever
+  // was in the room first keeps their slot — rather than leaving it to however LiveKit
+  // happened to order the participant list. Mics and screen shares bypass this entirely.
+  const cameras = candidates
+    .filter(({ track }) => track.source === TrackSource.CAMERA)
+    .sort((a, b) => Number(a.participant.joinedAt - b.participant.joinedAt))
+    .slice(0, MAX_RECORDED_CAMERAS);
+  const skipped = candidates.filter(({ track }) => track.source === TrackSource.CAMERA).length - cameras.length;
+  if (skipped > 0) {
+    console.log(
+      `[Recording] Recording ${cameras.length} of ${cameras.length + skipped} cameras ` +
+        `(cap ${MAX_RECORDED_CAMERAS}) — the other ${skipped} will show as avatar tiles`,
+    );
+  }
+
+  const startable = [...cameras, ...candidates.filter(({ track }) => track.source !== TrackSource.CAMERA)];
   const results = await Promise.all(
     startable.map(({ participant, track }) =>
       startTrackRecording(roomId, recordingId, participant.identity, track.source, track.sid),
@@ -419,6 +507,74 @@ async function closeOpenIntervals(recordingId: string): Promise<void> {
   ]);
   if (tracks.error) console.error('[Recording] Failed to close open track rows:', tracks.error);
   if (participants.error) console.error('[Recording] Failed to close open presence rows:', participants.error);
+}
+
+/**
+ * Closes every track interval this participant still had open, for when they leave the room.
+ *
+ * Their egresses have already ended on their own — LiveKit tears a track egress down when
+ * the track goes away with its publisher — but nothing was closing our *rows*. The only
+ * other path that closes one (`syncCameraRecordings`) walks `listParticipants()`, and
+ * someone who has left is no longer in it, so their rows stayed open until the recording
+ * itself finished.
+ *
+ * That was harmless while nothing read them mid-recording. It stopped being harmless once
+ * cameras became capped: `openCameraCount` counts exactly these rows, so twenty people
+ * being recorded and then leaving would hold the cap full for the rest of the call, and
+ * everyone still in the room — however few — would be stuck as avatar tiles with a box that
+ * had all the capacity in the world.
+ *
+ * Closing them here also makes `ended_at` mean what it says. The compositor's
+ * `clampToEgressLifetime` compares it against how much media a file actually holds, and
+ * "the moment the whole recording stopped" was never the right answer for someone who left
+ * an hour earlier.
+ */
+export async function closeParticipantTracks(recordingId: string, identity: string): Promise<void> {
+  const { data: open, error } = await supabase
+    .from('connect_recording_tracks')
+    .select('id, egress_id')
+    .eq('recording_id', recordingId)
+    .eq('identity', identity)
+    .is('ended_at', null);
+  if (error) {
+    console.error(`[Recording] Failed to read open tracks for departing ${identity}:`, error);
+    return;
+  }
+  if (!open || open.length === 0) return;
+
+  // Best effort. The egress has almost certainly stopped itself already, so this usually
+  // just warns — but one that somehow outlived its publisher would otherwise keep writing
+  // until the call ends, which is the failure that put segment_index and egress ids in this
+  // table in the first place.
+  if (egressClient) {
+    await Promise.all(
+      open
+        .filter((row) => row.egress_id)
+        .map((row) =>
+          egressClient!
+            .stopEgress(row.egress_id!)
+            .catch((e: any) =>
+              console.warn(
+                `[Recording] Egress ${row.egress_id} for departed ${identity} was already done:`,
+                e?.message,
+              ),
+            ),
+        ),
+    );
+  }
+
+  const { error: closeError } = await supabase
+    .from('connect_recording_tracks')
+    .update({ ended_at: new Date().toISOString() })
+    .in(
+      'id',
+      open.map((row) => row.id),
+    );
+  if (closeError) {
+    console.error(`[Recording] Failed to close track rows for departed ${identity}:`, closeError);
+    return;
+  }
+  console.log(`[Recording] Closed ${open.length} open track(s) for departed ${identity}`);
 }
 
 /** Closes one person's open presence interval. */

@@ -7,9 +7,18 @@ import { isAudio, type TrackSegment } from './tracks';
 
 const execFileAsync = promisify(execFile);
 
-const FPS = 30;
-// Every segment is encoded identically so they can be concatenated without re-encoding.
-const VIDEO_ARGS = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-r', String(FPS)];
+// 15 rather than 30: the screen share is published at 15fps to begin with, so half of a
+// 30fps composite is duplicated frames, and both the normalize and render passes cost time
+// in proportion to frame count — this is roughly 40% off the Cloud Run Job's billed runtime
+// and off the "準備中" wait the recordings list shows. A meeting recording at 15fps is
+// unremarkable; faces are the only thing that moves fast enough to notice.
+const FPS = 15;
+// Codec settings only — every segment is encoded identically so they can be concatenated
+// without re-encoding. The frame rate is passed separately by each caller rather than
+// living here, because the one place that needed to override it used to strip it back out
+// *by value* (`filter(arg => arg !== '-r' && arg !== String(FPS))`), which would have
+// silently taken `-crf`'s argument with it the day FPS was set to 23.
+const VIDEO_ARGS = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p'];
 
 // Matches the live call UI's camera-off placeholder background (`--lk-bg2`).
 const ICON_TILE_BG = '#1a1a1a';
@@ -139,7 +148,7 @@ export async function normalizeVideo(inputPath: string, outputPath: string): Pro
       `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
     '-an',
     '-r', String(FPS),
-    ...VIDEO_ARGS.filter((arg) => arg !== '-r' && arg !== String(FPS)),
+    ...VIDEO_ARGS,
     outputPath,
   ]);
 }
@@ -324,7 +333,7 @@ async function renderSegment(segment: LayoutSegment, avatarPaths: Map<string, st
   if (filters.length > 0) {
     args.push('-filter_complex', filters.join(';'), '-map', previous);
   }
-  args.push('-t', durationSec.toFixed(3), '-an', ...VIDEO_ARGS, outputPath);
+  args.push('-t', durationSec.toFixed(3), '-an', '-r', String(FPS), ...VIDEO_ARGS, outputPath);
 
   await run('ffmpeg', args);
 }

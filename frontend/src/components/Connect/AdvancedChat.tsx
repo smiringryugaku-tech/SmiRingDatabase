@@ -27,8 +27,8 @@ function renderMessageContent(text: string, isMe: boolean) {
       <div
         className={`${chatContentStyles} ${
           isMe
-            ? 'text-white prose-invert prose-headings:text-white prose-p:text-white prose-strong:text-white'
-            : ''
+            ? 'text-indigo-100 prose-invert prose-headings:text-white prose-p:text-indigo-100 prose-strong:text-white prose-strong:font-extrabold'
+            : 'text-gray-200 prose-strong:text-white prose-strong:font-extrabold'
         }`}
         dangerouslySetInnerHTML={{ __html: text }}
       />
@@ -37,7 +37,7 @@ function renderMessageContent(text: string, isMe: boolean) {
 
   const parts = text.split(URL_REGEX);
   return (
-    <div className="whitespace-pre-wrap break-words">
+    <div className="whitespace-pre-wrap break-words antialiased font-normal text-gray-200">
       {parts.map((part, i) => {
         if (part.match(URL_REGEX)) {
           return (
@@ -46,7 +46,7 @@ function renderMessageContent(text: string, isMe: boolean) {
               href={part}
               target="_blank"
               rel="noopener noreferrer"
-              className={`underline break-all font-medium transition-colors ${
+              className={`underline break-all font-semibold transition-colors ${
                 isMe
                   ? 'text-indigo-200 hover:text-white'
                   : 'text-indigo-400 hover:text-indigo-300'

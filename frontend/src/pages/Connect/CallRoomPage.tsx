@@ -812,7 +812,18 @@ function useScreenShareToggle() {
   const toggleShare = useCallback(async () => {
     try {
       await localParticipant.setScreenShareEnabled(!isScreenShareEnabled, {
-        resolution: ScreenSharePresets.original.resolution,
+        // Capped at 1080p rather than captured at the display's native size
+        // (`ScreenSharePresets.original`, which is literally "don't resize"). Capping makes
+        // small text *sharper*, not softer: a Retina panel hands over something like
+        // 3174x2410, and spreading `screenShareEncoding.maxBitrate` across 7.6 megapixels
+        // leaves about 0.05 bits per pixel — nowhere near enough for legible glyphs. The
+        // same stream at 1920x1080 gets roughly 2.5x that, and no viewer displays the share
+        // wider than this anyway (the recording composites it into 960px — see
+        // recording-compositor/src/layout.ts). It also drops the sharer's own encoder from
+        // 7.6 to 2.1 megapixels per frame, which is what makes laptops audible mid-share.
+        resolution: ScreenSharePresets.h1080fps15.resolution,
+        // Tells the encoder to spend bits on sharpness over motion — the right trade for
+        // slides and code, and the reason a static share stays readable at 15fps.
         contentHint: 'detail',
       });
     } catch (e) {
@@ -2027,14 +2038,19 @@ export default function CallRoomPage() {
         videoEncoding: VideoPresets.h720.encoding,
         videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
         screenShareEncoding: {
-          maxBitrate: 6_000_000,
+          // 4 Mbps over a 1080p-capped capture is a little over twice the bits per pixel the
+          // old 6 Mbps had to spread across a native Retina surface, so this is a quality
+          // increase and a bandwidth cut at once (see the resolution note in
+          // `useScreenShareToggle`).
+          maxBitrate: 4_000_000,
           maxFramerate: 15,
           priority: 'high',
         },
-        screenShareSimulcastLayers: [
-          ScreenSharePresets.h720fps5,
-          ScreenSharePresets.h1080fps15,
-        ],
+        // One fallback layer, not two: with the main encoding capped at 1080p, the old
+        // `h1080fps15` layer duplicated it. Dropping it means the sharer's machine encodes
+        // the screen twice instead of three times. `h720fps5` stays for anyone viewing the
+        // share in a small tile.
+        screenShareSimulcastLayers: [ScreenSharePresets.h720fps5],
         audioPreset: { maxBitrate: 32_000 },
         dtx: true,
         red: true,

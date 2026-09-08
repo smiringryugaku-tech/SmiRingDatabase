@@ -9,10 +9,26 @@ SmiRing Connect の録画を1本の動画に合成する Cloud Run Job。
 合成が Hetzner ではなくここで動くのは、あの箱(CX33 / 4 vCPU)がライブ通話の SFU を
 動かしているため。録画(コーデックコピーのみ)は軽いが、合成は重い。
 
+「なぜ今の実装がこうなっているか」の経緯(踏んだバグ・実測・検証の過程)は
+[`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md) を参照。
+
 ## レイアウト
 
 - 画面共有あり: 共有画面を左に大きく + 右の列に顔を最大10人
 - 画面共有なし: 顔を最大20人のグリッド
+- **録画されるカメラは同時最大20本まで**(backend の `MAX_RECORDED_CAMERAS`、既定20)。
+  1トラック = 1 egress ジョブ = Hetzner上の1プロセス + SFUへの1接続で、実測で映像1本あたり
+  約0.06〜0.11コア。このコストはビットレートではなく**本数**に比例する(Track Egress は
+  コーデックコピーのみで再エンコードしないため、6Mbpsの画面共有と720pのカメラがほぼ同コスト)
+  ので、人数に比例して効く対策は本数の上限だけ。20という数字はこのファイルの
+  `MAX_FACES_IN_GRID` とフロントの `MAX_LIVE_TILES` に合わせてあり、**合成が描けたはずの顔を
+  録り逃すことは起きない**。溢れた人は在室情報から本人のアバタータイルとして描かれる
+  (カメラOFFの人と同じ経路)。**マイクと画面共有は上限の対象外**
+- 枠は**カメラOFF・退室で解放され、空いたら溢れていた人が埋める**。退室時は
+  `participant_left` webhook が (1) その人の開いているトラック行を閉じて枠を返し
+  (`closeParticipantTracks`)、(2) その場で `syncCameraRecordings` を回して空いた枠を埋める。
+  これが無いと、最初の20人が全員抜けた後も枠が埋まったままになり、残った人が最後まで
+  アイコンのままになる
 - 画面共有の開始・終了だけでなく、**カメラの参加・退出(録画開始後に誰かが参加/カメラON/OFF
   した瞬間)でもタイムラインを区切り**、区間ごとに描画してから連結する(そうしないと、後から
   参加した人がいる区間全体が「最終的な人数」に合わせたグリッドサイズになってしまい、その人が
@@ -99,10 +115,13 @@ gcloud run jobs add-iam-policy-binding recording-compositor \
 
 Cloud Run Admin API (`run.googleapis.com`) も有効にしておく。
 
-backend 側に追加する環境変数は `COMPOSITOR_JOB_NAME`(Job 名、上の例では
+backend 側に必須の環境変数は `COMPOSITOR_JOB_NAME`(Job 名、上の例では
 `recording-compositor`)の1つだけ。プロジェクト・リージョンは backend が Vertex AI 用に
 既に持っている `GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION` をそのまま再利用する
 (`backend/src/lib/compositorTrigger.ts`)。
+
+任意で `MAX_RECORDED_CAMERAS`(同時に録画するカメラの上限、未設定なら20)も設定できる。
+Hetzner の箱が大人数の通話で詰まるようなら下げる。上限の意味は上の「レイアウト」を参照。
 
 ### 3. 権限レコードを追加する
 

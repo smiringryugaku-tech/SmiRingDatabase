@@ -19,9 +19,10 @@ interface ChatRichEditorProps {
 }
 
 export const chatContentStyles =
-  'text-xs text-gray-100 prose prose-sm prose-invert max-w-none ' +
-  'prose-p:my-0.5 prose-p:leading-relaxed ' +
-  'prose-headings:my-1 prose-headings:font-bold prose-h1:text-base prose-h2:text-sm prose-h3:text-xs ' +
+  'text-xs text-gray-200 prose prose-sm prose-invert max-w-none antialiased ' +
+  'prose-p:my-0.5 prose-p:leading-relaxed prose-p:font-normal ' +
+  'prose-strong:font-extrabold prose-strong:text-white ' +
+  'prose-headings:my-1 prose-headings:font-black prose-headings:text-white prose-h1:text-base prose-h2:text-sm prose-h3:text-xs ' +
   'prose-ul:my-1 prose-ul:pl-4 prose-ul:list-disc ' +
   'prose-ol:my-1 prose-ol:pl-4 prose-ol:list-decimal ' +
   'prose-li:my-0.5 ' +

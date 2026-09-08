@@ -1,6 +1,27 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* 全体のフォントレンダリング向上（ダークUIでの文字の滲みを防ぎ、細字と太字のメリハリを明確化） */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tiptapエディタおよびチャット内の太字・見出しのメリハリを強化 (W8 / 800相当) */
+.tiptap {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.tiptap strong,
+.tiptap b,
+.prose strong,
+.prose b {
+  font-weight: 800 !important;
+  color: #ffffff;
+}
+
 /* Tiptapのプレースホルダー用CSS */
 .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);

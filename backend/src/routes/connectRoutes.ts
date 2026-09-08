@@ -11,6 +11,7 @@ import { r2, BUCKET_NAME, resolveAvatarUrl, getSignedFileUrl } from '../lib/r2';
 import { ensureJpegBuffer } from '../lib/imageInput';
 import {
   closeParticipantPresence,
+  closeParticipantTracks,
   finishRecording,
   getActiveRecordingId,
   getRecordingSession,
@@ -1332,6 +1333,21 @@ router.post('/api/connect/webhook', async (req: Request, res: Response) => {
             await openParticipantPresence(recordingId, [identity]);
           } else {
             await closeParticipantPresence(recordingId, identity);
+            // Their tracks have to be closed here too. `syncCameraRecordings` is the only
+            // other thing that closes one, and it reads `listParticipants()` — which this
+            // person has just dropped out of, so it will never look at them again. Leaving
+            // the rows open would hold a camera slot (see `MAX_RECORDED_CAMERAS`) for
+            // someone who is no longer in the call.
+            await closeParticipantTracks(recordingId, identity);
+
+            // Someone leaving is the one moment a camera slot can free up, so it is also the
+            // moment to refill it: anyone whose camera was on but went unrecorded because the
+            // cap was full gets picked up here. Without this they would stay an avatar tile
+            // until somebody happened to toggle a camera, since that is the only other thing
+            // that pokes `/recording/sync`. It no-ops when nothing is waiting for a slot.
+            if (roomService) {
+              await syncCameraRecordings(roomId, recordingId, await roomService.listParticipants(roomId));
+            }
           }
         }
       } catch (e: any) {
